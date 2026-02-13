@@ -5,7 +5,7 @@ import { StatCard } from "@/components/StatCard";
 import { StatusDot } from "@/components/StatusDot";
 import { demoProject, demoCrawlRun, demoPages, demoFindings, demoAssets, demoSearchResults, demoNetworkRequests, demoEndpoints, demoSecrets, demoTechStack, demoGraphNodes, demoGraphEdges } from "@/lib/demo-data";
 import { motion } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Globe, Code2, FileCode, Package, Network, Radio, KeyRound, GitFork, CheckCircle2, Play, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Globe, Code2, FileCode, Package, Network, Radio, KeyRound, GitFork, CheckCircle2, Play, Loader2, RefreshCw, MonitorSmartphone } from "lucide-react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FindingsTab } from "@/components/project/FindingsTab";
 import { PagesTab } from "@/components/project/PagesTab";
@@ -196,6 +196,9 @@ const ProjectDetail = () => {
         <Tabs defaultValue="findings" className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border overflow-x-auto">
             <TabsList className="bg-transparent h-9 gap-0 w-max">
+              <TabsTrigger value="inspect" className="data-[state=active]:bg-muted data-[state=active]:text-foreground text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
+                <MonitorSmartphone className="w-3 h-3 mr-1" /> Inspect
+              </TabsTrigger>
               <TabsTrigger value="findings" className="data-[state=active]:bg-muted data-[state=active]:text-foreground text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
                 <ShieldCheck className="w-3 h-3 mr-1" /> Findings ({findings.length})
               </TabsTrigger>
@@ -227,6 +230,21 @@ const ProjectDetail = () => {
           </div>
 
           <div className="flex-1 overflow-auto p-4">
+            <TabsContent value="inspect" className="mt-0 h-full">
+              <div className="rounded-lg border border-border bg-card overflow-hidden h-[calc(100vh-280px)] flex flex-col">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 border-b border-border text-xs text-muted-foreground">
+                  <MonitorSmartphone className="w-3 h-3" />
+                  <span className="font-mono truncate">{project.startUrl}</span>
+                  <a href={project.startUrl} target="_blank" rel="noopener noreferrer" className="ml-auto text-primary hover:underline">Open extern ↗</a>
+                </div>
+                <iframe
+                  src={project.startUrl}
+                  title="Site Inspect"
+                  className="flex-1 w-full bg-white"
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+                />
+              </div>
+            </TabsContent>
             <TabsContent value="findings" className="mt-0">
               <FindingsTab findings={findings} onSelect={setSelectedItem} />
             </TabsContent>
