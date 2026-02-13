@@ -1,7 +1,8 @@
-import { useState, useCallback, useMemo } from "react";
-import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, DownloadCloud, X, Play, ZoomIn, FileArchive } from "lucide-react";
+import { useState, useCallback, useMemo, useRef } from "react";
+import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
@@ -33,6 +34,10 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
   const [zipping, setZipping] = useState(false);
   const [preview, setPreview] = useState<MediaItem | null>(null);
   const [visibleCount, setVisibleCount] = useState(20);
+  const [browseMode, setBrowseMode] = useState(false);
+  const [browseUrl, setBrowseUrl] = useState("");
+  const [browseInput, setBrowseInput] = useState("");
+  const [scanningUrl, setScanningUrl] = useState(false);
   const LOAD_BATCH = 20;
 
   const scan = useCallback(async () => {
@@ -174,6 +179,40 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     toast.success("Exported URL list");
   };
 
+  const scanSingleUrl = useCallback(async (url: string) => {
+    if (!url) return;
+    setScanningUrl(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("scan-media", {
+        body: { urls: [url] },
+      });
+      if (error) throw error;
+      if (data?.media) {
+        const newItems = data.media as MediaItem[];
+        setMedia(prev => {
+          const seen = new Set(prev.map(m => m.url));
+          const unique = newItems.filter(m => !seen.has(m.url));
+          return [...prev, ...unique];
+        });
+        setScanned(true);
+        toast.success(`Found ${newItems.length} media items on this page`);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error("Scan failed for this URL");
+    } finally {
+      setScanningUrl(false);
+    }
+  }, []);
+
+  const startBrowse = () => {
+    if (!browseInput.trim()) return;
+    let url = browseInput.trim();
+    if (!url.startsWith("http")) url = "https://" + url;
+    setBrowseUrl(url);
+    setBrowseMode(true);
+  };
+
   const TypeIcon = ({ type }: { type: string }) => {
     if (type === "video") return <Film className="w-3 h-3 text-primary" />;
     if (type === "audio") return <Music className="w-3 h-3 text-accent-foreground" />;
@@ -204,19 +243,63 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
 
           {/* Controls */}
           <div className="px-4 py-2 border-b border-border space-y-2">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={scan}
                 disabled={scanning}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-                {scanning ? "Scanning..." : scanned ? "Re-scan" : "Scan for Media"}
+                {scanning ? "Scanning..." : scanned ? "Re-scan" : "Scan Pages"}
+              </button>
+              <button
+                onClick={() => setBrowseMode(!browseMode)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  browseMode ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                Browse & Scan
               </button>
               <span className="text-[10px] text-muted-foreground">
-                {pageUrls.length} pages to scan
+                {pageUrls.length} pages · {media.length} media found
               </span>
             </div>
+
+            {/* Mini Browser URL bar */}
+            {browseMode && (
+              <div className="flex items-center gap-2">
+                <Input
+                  value={browseInput}
+                  onChange={(e) => setBrowseInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && startBrowse()}
+                  placeholder="Enter URL to browse & scan (e.g. https://example.com)"
+                  className="h-8 text-xs font-mono flex-1"
+                />
+                <button
+                  onClick={startBrowse}
+                  disabled={!browseInput.trim()}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
+                >
+                  <Globe className="w-3 h-3" /> Go
+                </button>
+                {browseUrl && (
+                  <button
+                    onClick={() => scanSingleUrl(browseUrl)}
+                    disabled={scanningUrl}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:bg-accent/80 disabled:opacity-50"
+                  >
+                    {scanningUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                    Scan This Page
+                  </button>
+                )}
+                {browseUrl && (
+                  <a href={browseUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-muted">
+                    <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
+                  </a>
+                )}
+              </div>
+            )}
 
             {scanned && (
               <>
@@ -276,12 +359,43 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
             )}
           </div>
 
+          {/* Mini Browser Preview */}
+          {browseMode && browseUrl && (
+            <div className="border-b border-border bg-muted/20">
+              <div className="px-3 py-1.5 flex items-center justify-between border-b border-border">
+                <span className="text-[10px] text-muted-foreground font-mono truncate flex-1">{browseUrl}</span>
+                <button onClick={() => { setBrowseUrl(""); setBrowseMode(false); }} className="p-0.5 rounded hover:bg-muted">
+                  <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              </div>
+              <div className="h-[300px] relative">
+                <iframe
+                  src={browseUrl}
+                  className="w-full h-full border-0"
+                  sandbox="allow-scripts allow-same-origin allow-popups"
+                  referrerPolicy="no-referrer"
+                  title="Page Preview"
+                />
+                <div className="absolute bottom-2 right-2">
+                  <button
+                    onClick={() => scanSingleUrl(browseUrl)}
+                    disabled={scanningUrl}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {scanningUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                    Scan Media on This Page
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Media grid */}
           <div className="flex-1 overflow-auto p-3">
             {!scanned ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                 <Camera className="w-8 h-8 opacity-30" />
-                <p className="text-xs">Click "Scan for Media" to find all images, videos & audio</p>
+                <p className="text-xs">Use "Scan Pages" or "Browse & Scan" to find media</p>
               </div>
             ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
