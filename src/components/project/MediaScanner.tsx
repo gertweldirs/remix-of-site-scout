@@ -183,26 +183,36 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     if (!url) return;
     setScanningUrl(true);
     try {
+      // Step 1: Try standard scan
       const { data, error } = await supabase.functions.invoke("scan-media", {
         body: { urls: [url] },
       });
       if (error) throw error;
-      if (data?.media) {
-        const newItems = data.media as MediaItem[];
-        if (newItems.length === 0) {
-          toast.info(
-            "No media found — this site may use JavaScript rendering. Try 'Open in tab' and use your browser's DevTools to inspect media.",
-            { duration: 6000 }
-          );
-        } else {
-          setMedia(prev => {
-            const seen = new Set(prev.map(m => m.url));
-            const unique = newItems.filter(m => !seen.has(m.url));
-            return [...prev, ...unique];
-          });
-          setScanned(true);
-          toast.success(`Found ${newItems.length} media items on this page`);
+      let newItems = (data?.media || []) as MediaItem[];
+
+      // Step 2: If no results, fallback to Firecrawl (headless browser)
+      if (newItems.length === 0) {
+        toast.info("Standard scan found nothing — trying headless browser via Firecrawl...", { duration: 4000 });
+        const { data: fcData, error: fcError } = await supabase.functions.invoke("firecrawl-scrape", {
+          body: { url },
+        });
+        if (fcError) {
+          console.warn("Firecrawl fallback failed:", fcError);
+        } else if (fcData?.media) {
+          newItems = fcData.media as MediaItem[];
         }
+      }
+
+      if (newItems.length === 0) {
+        toast.info("No media found on this page, even with headless rendering.", { duration: 5000 });
+      } else {
+        setMedia(prev => {
+          const seen = new Set(prev.map(m => m.url));
+          const unique = newItems.filter(m => !seen.has(m.url));
+          return [...prev, ...unique];
+        });
+        setScanned(true);
+        toast.success(`Found ${newItems.length} media items on this page`);
       }
     } catch (e) {
       console.error(e);
