@@ -125,18 +125,23 @@ export function useProjectData(projectId: string | undefined) {
   const isLoading = project.isLoading || latestRun.isLoading;
   const hasData = !!runId;
 
-  const refetchAll = () => {
-    project.refetch();
-    latestRun.refetch();
-    pages.refetch();
-    findings.refetch();
-    assets.refetch();
-    endpoints.refetch();
-    secretsFound.refetch();
-    techStack.refetch();
-    networkRequests.refetch();
-    searchEntries.refetch();
-    graphEdges.refetch();
+  const refetchAll = async () => {
+    await project.refetch();
+    const latestRunResult = await latestRun.refetch();
+    // Only refetch child queries if we have a valid run ID
+    if (latestRunResult.data?.id) {
+      await Promise.all([
+        pages.refetch(),
+        findings.refetch(),
+        assets.refetch(),
+        endpoints.refetch(),
+        secretsFound.refetch(),
+        techStack.refetch(),
+        networkRequests.refetch(),
+        searchEntries.refetch(),
+        graphEdges.refetch(),
+      ]);
+    }
   };
 
   return {
