@@ -12,6 +12,35 @@ interface MediaItem {
   foundOn: string;
   thumbnailUrl?: string;
   downloadUrl?: string;
+  streamUrl?: string;
+}
+
+// Decode obfuscated video source URLs (reversed base64 after ==)
+function decodeVideoSrc(encoded: string): string | null {
+  try {
+    const eqIdx = encoded.indexOf('==');
+    if (eqIdx === -1) return null;
+    const afterEq = encoded.substring(eqIdx + 2);
+    if (!afterEq) return null;
+    const reversed = afterEq.split('').reverse().join('');
+    // Find base64-encoded https:// (aHR0cHM6Ly or aHR0cDovL)
+    const httpsMark = reversed.indexOf('aHR0cHM6Ly');
+    const httpMark = reversed.indexOf('aHR0cDovL');
+    const startIdx = httpsMark !== -1 ? httpsMark : httpMark;
+    if (startIdx === -1) return null;
+    // Extract base64 chars from the start marker
+    const b64Chars = /^[A-Za-z0-9+/=]+/;
+    const match = reversed.substring(startIdx).match(b64Chars);
+    if (!match) return null;
+    let b64 = match[0];
+    // Fix padding
+    while (b64.length % 4 !== 0) b64 += '=';
+    const decoded = atob(b64);
+    if (decoded.startsWith('http')) return decoded;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|bmp|ico|avif|tiff?)(\?|$)/i;
@@ -80,17 +109,29 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
 
     if (dataVideoMatch) {
       let videoSrc: string | undefined;
+      let streamUrl: string | undefined;
       try {
         const videoJson = dataVideoMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
         const parsed = JSON.parse(videoJson);
-        if (parsed.source?.[0]?.src) videoSrc = parsed.source[0].src;
+        if (parsed.source?.[0]?.src) {
+          const rawSrc = parsed.source[0].src;
+          // Decode obfuscated HLS URL
+          const decoded = decodeVideoSrc(rawSrc);
+          if (decoded) {
+            streamUrl = decoded;
+            console.log('Decoded video stream:', decoded);
+          }
+          videoSrc = rawSrc;
+        }
       } catch { /* ignore */ }
-      const primaryUrl = downloadUrl || videoSrc;
+      // Use stream URL as primary, download URL as fallback
+      const primaryUrl = streamUrl || downloadUrl || videoSrc;
       if (primaryUrl) {
         addItem({
           url: primaryUrl, type: 'video', sourceTag: 'gallery-video',
           poster: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
-          alt: dataTitle, downloadUrl, thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
+          alt: dataTitle, downloadUrl, streamUrl,
+          thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
         });
       }
     } else if (dataSrc) {
