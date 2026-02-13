@@ -104,11 +104,25 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     }
   };
 
+  const proxyFetch = async (url: string): Promise<Blob> => {
+    // Try direct fetch first, fall back to proxy for CORS-blocked resources
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      if (resp.ok) return await resp.blob();
+    } catch { /* CORS blocked, use proxy */ }
+    
+    const { data, error } = await supabase.functions.invoke("media-proxy", {
+      body: { url },
+    });
+    if (error) throw error;
+    // Edge function returns raw binary
+    return data as Blob;
+  };
+
   const downloadOne = async (url: string, filename?: string) => {
     setDownloading(url);
     try {
-      const resp = await fetch(url);
-      const blob = await resp.blob();
+      const blob = await proxyFetch(url);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = filename || url.split("/").pop()?.split("?")[0] || "media";
@@ -135,9 +149,8 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
       await Promise.all(
         urls.map(async (url) => {
           try {
-            const resp = await fetch(url);
-            if (!resp.ok) return;
-            const blob = await resp.blob();
+            const resp = await proxyFetch(url);
+            const blob = resp;
             let name = url.split("/").pop()?.split("?")[0] || "file";
             // Deduplicate filenames
             if (nameCount[name] !== undefined) {
@@ -181,20 +194,18 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     toast.success("Exported URL list");
   };
 
-  const scanSingleUrl = useCallback(async (url: string) => {
+  const scanSingleUrl = useCallback(async (url: string, paginate = false) => {
     if (!url) return;
     setScanningUrl(true);
     try {
-      // Always use Firecrawl (headless browser) for best results with JS-rendered sites
-      toast.info("Scanning with headless browser for original quality media...", { duration: 4000 });
+      toast.info(paginate ? "Scanning all pages with headless browser..." : "Scanning with headless browser for original quality media...", { duration: 4000 });
       const { data: fcData, error: fcError } = await supabase.functions.invoke("firecrawl-scrape", {
-        body: { url },
+        body: { url, paginate, maxPages: 20 },
       });
       
       let newItems: MediaItem[] = [];
       if (fcError) {
         console.warn("Firecrawl failed, falling back to standard scan:", fcError);
-        // Fallback to standard scan
         const { data, error } = await supabase.functions.invoke("scan-media", {
           body: { urls: [url] },
         });
@@ -208,13 +219,14 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
         toast.info("No media found on this page.", { duration: 5000 });
       } else {
         const originals = newItems.filter(m => m.sourceTag === 'gallery-original' || m.sourceTag === 'gallery-video').length;
+        const pages = fcData?.scannedPages || 1;
         setMedia(prev => {
           const seen = new Set(prev.map(m => m.url));
           const unique = newItems.filter(m => !seen.has(m.url));
           return [...prev, ...unique];
         });
         setScanned(true);
-        toast.success(`Found ${newItems.length} media items${originals > 0 ? ` (${originals} originals)` : ''}`);
+        toast.success(`Found ${newItems.length} media items${originals > 0 ? ` (${originals} originals)` : ''}${pages > 1 ? ` across ${pages} pages` : ''}`);
       }
     } catch (e) {
       console.error(e);
@@ -303,14 +315,24 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   <Globe className="w-3 h-3" /> Go
                 </button>
                 {browseUrl && (
-                  <button
-                    onClick={() => scanSingleUrl(browseUrl)}
-                    disabled={scanningUrl}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:bg-accent/80 disabled:opacity-50"
-                  >
-                    {scanningUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
-                    Scan This Page
-                  </button>
+                  <>
+                    <button
+                      onClick={() => scanSingleUrl(browseUrl)}
+                      disabled={scanningUrl}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-xs font-medium hover:bg-accent/80 disabled:opacity-50"
+                    >
+                      {scanningUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                      Scan Page
+                    </button>
+                    <button
+                      onClick={() => scanSingleUrl(browseUrl, true)}
+                      disabled={scanningUrl}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {scanningUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
+                      All Pages
+                    </button>
+                  </>
                 )}
                 {browseUrl && (
                   <a href={browseUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-muted">
@@ -416,10 +438,18 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   <button
                     onClick={() => scanSingleUrl(browseUrl)}
                     disabled={scanningUrl}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent text-accent-foreground text-xs font-medium shadow-lg hover:bg-accent/80 disabled:opacity-50"
                   >
                     {scanningUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                    Scan Media on This Page
+                    Scan Page
+                  </button>
+                  <button
+                    onClick={() => scanSingleUrl(browseUrl, true)}
+                    disabled={scanningUrl}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {scanningUrl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                    All Pages
                   </button>
                 </div>
               </div>
