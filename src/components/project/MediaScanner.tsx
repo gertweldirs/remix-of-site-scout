@@ -104,53 +104,69 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     }
   };
 
-  const proxyFetch = async (url: string): Promise<Blob> => {
-    // Try direct fetch first, fall back to proxy for CORS-blocked resources
+  const proxyFetch = async (item: MediaItem): Promise<Blob> => {
+    const url = item.downloadUrl || item.url;
+    // Try direct fetch first
     try {
       const resp = await fetch(url, { mode: 'cors' });
       if (resp.ok) return await resp.blob();
     } catch { /* CORS blocked, use proxy */ }
     
-    const { data, error } = await supabase.functions.invoke("media-proxy", {
-      body: { url },
-    });
-    if (error) throw error;
-    // Edge function returns raw binary
-    return data as Blob;
+    // Try proxy with referer
+    try {
+      const { data, error } = await supabase.functions.invoke("media-proxy", {
+        body: { url, refererUrl: item.foundOn },
+      });
+      if (!error && data instanceof Blob && data.size > 0) return data;
+    } catch { /* proxy failed */ }
+    
+    // For images, try the main url (not downloadUrl) which may be on a CDN
+    if (item.type === 'image' && item.downloadUrl && item.url !== item.downloadUrl) {
+      try {
+        const resp = await fetch(item.url, { mode: 'cors' });
+        if (resp.ok) return await resp.blob();
+      } catch { /* also blocked */ }
+    }
+    
+    throw new Error('Download blocked');
   };
 
-  const downloadOne = async (url: string, filename?: string) => {
+  const downloadOne = async (item: MediaItem) => {
+    const url = item.downloadUrl || item.url;
     setDownloading(url);
     try {
-      const blob = await proxyFetch(url);
+      const blob = await proxyFetch(item);
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = filename || url.split("/").pop()?.split("?")[0] || "media";
+      a.download = url.split("/").pop()?.split("?")[0] || "media";
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
+      // Fallback: open in new tab (user's browser may have session cookies)
       window.open(url, "_blank");
+      toast.info("Opened in new tab — your browser may be able to download it directly.");
     } finally {
       setDownloading(null);
     }
   };
 
-  const downloadAsZip = async (urls: string[]) => {
-    if (urls.length === 0) {
+  const downloadAsZip = async (items: MediaItem[]) => {
+    if (items.length === 0) {
       toast.error("No items to download");
       return;
     }
     setZipping(true);
-    const toastId = toast.loading(`Downloading ${urls.length} files for ZIP...`);
+    const toastId = toast.loading(`Downloading ${items.length} files for ZIP...`);
     try {
       const zip = new JSZip();
       const nameCount: Record<string, number> = {};
 
       await Promise.all(
-        urls.map(async (url) => {
+        items.map(async (item) => {
           try {
-            const resp = await proxyFetch(url);
+            const resp = await proxyFetch(item);
             const blob = resp;
+            const url = item.downloadUrl || item.url;
             let name = url.split("/").pop()?.split("?")[0] || "file";
             // Deduplicate filenames
             if (nameCount[name] !== undefined) {
@@ -370,23 +386,23 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   </button>
                   {selected.size > 0 && (
                     <>
-                      <button onClick={() => downloadAsZip(Array.from(selected))}
+                      <button onClick={() => downloadAsZip(filtered.filter(m => selected.has(m.url)))}
                         disabled={zipping}
                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 disabled:opacity-50">
                         {zipping ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <FileArchive className="w-2.5 h-2.5" />}
                         ZIP selected ({selected.size})
                       </button>
                       <button onClick={() => {
-                        const urls = Array.from(selected);
-                        toast.info(`Downloading ${urls.length} files...`);
-                        urls.forEach((url, i) => setTimeout(() => downloadOne(url), i * 300));
+                        const items = filtered.filter(m => selected.has(m.url));
+                        toast.info(`Downloading ${items.length} files...`);
+                        items.forEach((item, i) => setTimeout(() => downloadOne(item), i * 300));
                       }}
                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20">
                         <Download className="w-2.5 h-2.5" /> Download ({selected.size})
                       </button>
                     </>
                   )}
-                  <button onClick={() => downloadAsZip(filtered.map(m => m.url))}
+                  <button onClick={() => downloadAsZip(filtered)}
                     disabled={zipping}
                     className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium hover:text-foreground disabled:opacity-50">
                     <FileArchive className="w-2.5 h-2.5" /> ZIP all
@@ -548,7 +564,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
 
                       {/* Download button */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); downloadOne(item.downloadUrl || item.url); }}
+                        onClick={(e) => { e.stopPropagation(); downloadOne(item); }}
                         className="absolute bottom-1 right-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
                       >
                         {downloading === item.url ? (
@@ -597,7 +613,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   </span>
                 </div>
                 <button
-                  onClick={() => downloadOne(preview.url)}
+                  onClick={() => preview && downloadOne(preview)}
                   className="flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground text-xs hover:bg-primary/90"
                 >
                   <Download className="w-3 h-3" /> Download
