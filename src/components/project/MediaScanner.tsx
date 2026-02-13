@@ -411,14 +411,21 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
   };
 
   const openAllDownloads = (items: MediaItem[]) => {
+    const MAX_TABS = 5;
     const videos = items.filter(m => m.type === 'video');
+    
     if (videos.length === 0) {
       toast.error("No videos selected");
       return;
     }
 
+    // Check if exceeds max limit
+    if (videos.length > MAX_TABS) {
+      toast.error(`Cannot open more than ${MAX_TABS} downloads at once. Selected ${videos.length} videos.`);
+      return;
+    }
+
     let openCount = 0;
-    const noUrlCount = videos.length;
 
     videos.forEach((item, index) => {
       const downloadUrl = item.downloadUrl;
