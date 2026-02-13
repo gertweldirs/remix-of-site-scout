@@ -161,7 +161,20 @@ const ProjectDetail = () => {
                 <CheckCircle2 className="w-3 h-3" /> Consent
               </span>
             )}
-            <ExportMenu projectName={project.name} findings={findings} pages={pages} assets={assets} />
+            <ExportMenu
+              projectName={project.name}
+              startUrl={project.startUrl}
+              findings={findings}
+              pages={pages}
+              assets={assets}
+              endpoints={endpoints}
+              secrets={secrets}
+              techStack={techStack}
+              networkRequests={networkReqs}
+              searchResults={searchResults}
+              graphNodes={graphNodes}
+              graphEdges={graphEdges}
+            />
           </div>
         </div>
 
