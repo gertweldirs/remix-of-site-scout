@@ -14,6 +14,8 @@ interface MediaItem {
   poster?: string;
   sourceTag: string;
   foundOn: string;
+  thumbnailUrl?: string;
+  downloadUrl?: string;
 }
 
 interface Props {
@@ -183,36 +185,36 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     if (!url) return;
     setScanningUrl(true);
     try {
-      // Step 1: Try standard scan
-      const { data, error } = await supabase.functions.invoke("scan-media", {
-        body: { urls: [url] },
+      // Always use Firecrawl (headless browser) for best results with JS-rendered sites
+      toast.info("Scanning with headless browser for original quality media...", { duration: 4000 });
+      const { data: fcData, error: fcError } = await supabase.functions.invoke("firecrawl-scrape", {
+        body: { url },
       });
-      if (error) throw error;
-      let newItems = (data?.media || []) as MediaItem[];
-
-      // Step 2: If no results, fallback to Firecrawl (headless browser)
-      if (newItems.length === 0) {
-        toast.info("Standard scan found nothing — trying headless browser via Firecrawl...", { duration: 4000 });
-        const { data: fcData, error: fcError } = await supabase.functions.invoke("firecrawl-scrape", {
-          body: { url },
+      
+      let newItems: MediaItem[] = [];
+      if (fcError) {
+        console.warn("Firecrawl failed, falling back to standard scan:", fcError);
+        // Fallback to standard scan
+        const { data, error } = await supabase.functions.invoke("scan-media", {
+          body: { urls: [url] },
         });
-        if (fcError) {
-          console.warn("Firecrawl fallback failed:", fcError);
-        } else if (fcData?.media) {
-          newItems = fcData.media as MediaItem[];
-        }
+        if (error) throw error;
+        newItems = (data?.media || []) as MediaItem[];
+      } else if (fcData?.media) {
+        newItems = fcData.media as MediaItem[];
       }
 
       if (newItems.length === 0) {
-        toast.info("No media found on this page, even with headless rendering.", { duration: 5000 });
+        toast.info("No media found on this page.", { duration: 5000 });
       } else {
+        const originals = newItems.filter(m => m.sourceTag === 'gallery-original' || m.sourceTag === 'gallery-video').length;
         setMedia(prev => {
           const seen = new Set(prev.map(m => m.url));
           const unique = newItems.filter(m => !seen.has(m.url));
           return [...prev, ...unique];
         });
         setScanned(true);
-        toast.success(`Found ${newItems.length} media items on this page`);
+        toast.success(`Found ${newItems.length} media items${originals > 0 ? ` (${originals} originals)` : ''}`);
       }
     } catch (e) {
       console.error(e);
@@ -451,19 +453,25 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                       <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
                         {item.type === "image" ? (
                           <img
-                            src={item.url}
+                            src={item.thumbnailUrl || item.url}
                             alt={item.alt || ""}
                             className="w-full h-full object-cover"
                             loading="lazy"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                              (e.target as HTMLImageElement).parentElement!.innerHTML =
-                                '<div class="flex items-center justify-center h-full text-muted-foreground"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                              // If thumbnail fails, try original
+                              const img = e.target as HTMLImageElement;
+                              if (item.thumbnailUrl && img.src !== item.url) {
+                                img.src = item.url;
+                              } else {
+                                img.style.display = "none";
+                                img.parentElement!.innerHTML =
+                                  '<div class="flex items-center justify-center h-full text-muted-foreground"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                              }
                             }}
                           />
                         ) : item.type === "video" ? (
-                          item.poster ? (
-                            <img src={item.poster} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          item.thumbnailUrl || item.poster ? (
+                            <img src={item.thumbnailUrl || item.poster} alt="" className="w-full h-full object-cover" loading="lazy" />
                           ) : (
                             <div className="flex flex-col items-center gap-1 text-muted-foreground">
                               <Film className="w-6 h-6" />
@@ -478,9 +486,12 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                         )}
                       </div>
 
-                      {/* Type badge */}
-                      <div className="absolute top-1 left-1">
+                      {/* Type & quality badge */}
+                      <div className="absolute top-1 left-1 flex gap-0.5">
                         <TypeIcon type={item.type} />
+                        {(item.sourceTag === 'gallery-original' || item.sourceTag === 'gallery-video') && (
+                          <span className="text-[7px] bg-primary/80 text-primary-foreground px-1 rounded font-bold">HD</span>
+                        )}
                       </div>
 
                       {/* Selection indicator */}
@@ -507,7 +518,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
 
                       {/* Download button */}
                       <button
-                        onClick={(e) => { e.stopPropagation(); downloadOne(item.url); }}
+                        onClick={(e) => { e.stopPropagation(); downloadOne(item.downloadUrl || item.url); }}
                         className="absolute bottom-1 right-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
                       >
                         {downloading === item.url ? (
