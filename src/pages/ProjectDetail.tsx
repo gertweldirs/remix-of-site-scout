@@ -7,8 +7,9 @@ import { StatusDot } from "@/components/StatusDot";
 import { Input } from "@/components/ui/input";
 import { demoProject, demoCrawlRun, demoPages, demoFindings, demoAssets, demoSearchResults, demoTechStack } from "@/lib/demo-data";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Search, ExternalLink, FileCode, Globe, ShieldCheck, Code2, Package } from "lucide-react";
+import { ArrowLeft, Search, ExternalLink, FileCode, Globe, ShieldCheck, Code2, Package } from "lucide-react";
 import { Finding, Severity } from "@/lib/types";
+import { ExportMenu } from "@/components/ExportMenu";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return bytes + " B";
@@ -51,10 +52,12 @@ const ProjectDetail = () => {
           </div>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">{project.startUrl}</p>
         </div>
-        <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm text-foreground hover:bg-muted transition-colors">
-          <Download className="w-3.5 h-3.5" />
-          Export
-        </button>
+        <ExportMenu
+          projectName={project.name}
+          findings={demoFindings}
+          pages={demoPages}
+          assets={demoAssets}
+        />
       </div>
 
       {/* Stats row */}
