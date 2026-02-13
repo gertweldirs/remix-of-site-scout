@@ -1,11 +1,12 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import JSZip from "jszip";
+import Hls from "hls.js";
 
 interface MediaItem {
   url: string;
@@ -16,6 +17,52 @@ interface MediaItem {
   foundOn: string;
   thumbnailUrl?: string;
   downloadUrl?: string;
+  streamUrl?: string;
+}
+
+function HlsVideo({ src, poster }: { src: string; poster?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (src.includes('.m3u8') && Hls.isSupported()) {
+      const hls = new Hls({
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false;
+        },
+      });
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        console.warn('HLS error:', data.type, data.details);
+        if (data.fatal) {
+          // Try direct playback as fallback
+          video.src = src;
+          video.play().catch(() => {});
+        }
+      });
+      return () => hls.destroy();
+    } else {
+      // Safari supports HLS natively, or it's a direct MP4
+      video.src = src;
+      video.play().catch(() => {});
+    }
+  }, [src]);
+
+  return (
+    <video
+      ref={videoRef}
+      controls
+      poster={poster}
+      className="max-w-full max-h-[70vh] rounded"
+      playsInline
+    />
+  );
 }
 
 interface Props {
@@ -127,6 +174,16 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
         if (resp.ok) return await resp.blob();
       } catch { /* also blocked */ }
     }
+
+    // For videos with stream URL, try proxying that
+    if (item.streamUrl) {
+      try {
+        const { data, error } = await supabase.functions.invoke("media-proxy", {
+          body: { url: item.streamUrl, refererUrl: item.foundOn },
+        });
+        if (!error && data instanceof Blob && data.size > 0) return data;
+      } catch { /* proxy failed */ }
+    }
     
     throw new Error('Download blocked');
   };
@@ -142,8 +199,9 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
-      // Fallback: open in new tab (user's browser may have session cookies)
-      window.open(url, "_blank");
+      // For videos, open the download URL or stream URL in new tab
+      const fallbackUrl = item.downloadUrl || item.streamUrl || item.url;
+      window.open(fallbackUrl, "_blank");
       toast.info("Opened in new tab — your browser may be able to download it directly.");
     } finally {
       setDownloading(null);
@@ -602,6 +660,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
       {/* Preview Dialog */}
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
         <DialogContent className="max-w-4xl w-[90vw] max-h-[90vh] p-0 overflow-hidden bg-background border-border">
+          <DialogTitle className="sr-only">Media Preview</DialogTitle>
           {preview && (
             <div className="flex flex-col h-full">
               {/* Header */}
@@ -609,15 +668,28 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                 <div className="flex items-center gap-2 min-w-0">
                   <TypeIcon type={preview.type} />
                   <span className="text-xs text-muted-foreground truncate font-mono">
-                    {preview.url.split("/").pop()?.split("?")[0] || "file"}
+                    {(preview.streamUrl || preview.url).split("/").pop()?.split("?")[0] || "file"}
                   </span>
+                  {preview.streamUrl && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-medium">HLS</span>
+                  )}
                 </div>
-                <button
-                  onClick={() => preview && downloadOne(preview)}
-                  className="flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground text-xs hover:bg-primary/90"
-                >
-                  <Download className="w-3 h-3" /> Download
-                </button>
+                <div className="flex items-center gap-1">
+                  {preview.type === 'video' && (
+                    <button
+                      onClick={() => window.open(preview.downloadUrl || preview.streamUrl || preview.url, '_blank')}
+                      className="flex items-center gap-1 px-2 py-1 rounded bg-muted text-muted-foreground text-xs hover:text-foreground"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Open
+                    </button>
+                  )}
+                  <button
+                    onClick={() => preview && downloadOne(preview)}
+                    className="flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground text-xs hover:bg-primary/90"
+                  >
+                    <Download className="w-3 h-3" /> Download
+                  </button>
+                </div>
               </div>
 
               {/* Content */}
@@ -629,11 +701,8 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                     className="max-w-full max-h-[70vh] object-contain rounded"
                   />
                 ) : preview.type === "video" ? (
-                  <video
-                    src={preview.url}
-                    controls
-                    autoPlay
-                    className="max-w-full max-h-[70vh] rounded"
+                  <HlsVideo
+                    src={preview.streamUrl || preview.url}
                     poster={preview.poster}
                   />
                 ) : (
@@ -648,6 +717,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
               <div className="px-4 py-2 border-t border-border">
                 <p className="text-[10px] text-muted-foreground truncate">
                   Source: {preview.foundOn} · Tag: &lt;{preview.sourceTag}&gt;
+                  {preview.streamUrl && ` · Stream: ${preview.streamUrl.split("?")[0]}`}
                 </p>
               </div>
             </div>
