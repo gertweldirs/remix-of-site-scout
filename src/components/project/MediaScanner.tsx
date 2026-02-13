@@ -189,13 +189,20 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
       if (error) throw error;
       if (data?.media) {
         const newItems = data.media as MediaItem[];
-        setMedia(prev => {
-          const seen = new Set(prev.map(m => m.url));
-          const unique = newItems.filter(m => !seen.has(m.url));
-          return [...prev, ...unique];
-        });
-        setScanned(true);
-        toast.success(`Found ${newItems.length} media items on this page`);
+        if (newItems.length === 0) {
+          toast.info(
+            "No media found — this site may use JavaScript rendering. Try 'Open in tab' and use your browser's DevTools to inspect media.",
+            { duration: 6000 }
+          );
+        } else {
+          setMedia(prev => {
+            const seen = new Set(prev.map(m => m.url));
+            const unique = newItems.filter(m => !seen.has(m.url));
+            return [...prev, ...unique];
+          });
+          setScanned(true);
+          toast.success(`Found ${newItems.length} media items on this page`);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -368,15 +375,32 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   <X className="w-3 h-3 text-muted-foreground" />
                 </button>
               </div>
-              <div className="h-[300px] relative">
+              <div className="h-[250px] relative">
                 <iframe
                   src={browseUrl}
                   className="w-full h-full border-0"
                   sandbox="allow-scripts allow-same-origin allow-popups"
                   referrerPolicy="no-referrer"
                   title="Page Preview"
+                  onError={() => {}}
                 />
-                <div className="absolute bottom-2 right-2">
+                {/* Overlay hint for blocked iframes */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="bg-background/80 backdrop-blur-sm rounded-lg px-4 py-3 text-center max-w-xs opacity-0 hover:opacity-0 pointer-events-none" id="iframe-hint">
+                    <p className="text-[10px] text-muted-foreground">If the page doesn't load, the site blocks embedding.</p>
+                    <p className="text-[10px] text-muted-foreground">Click "Scan This Page" — it works regardless!</p>
+                  </div>
+                </div>
+                <div className="absolute bottom-2 right-2 flex gap-2">
+                  <a
+                    href={browseUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted text-muted-foreground text-xs font-medium shadow-lg hover:text-foreground"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open in tab
+                  </a>
                   <button
                     onClick={() => scanSingleUrl(browseUrl)}
                     disabled={scanningUrl}

@@ -24,16 +24,48 @@ function resolveUrl(base: string, href: string): string | null {
   }
 }
 
+// Common user agents to rotate through for sites that block bots
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+];
+
+async function fetchWithRetry(url: string, retries = 2): Promise<Response | null> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          'User-Agent': USER_AGENTS[i % USER_AGENTS.length],
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cache-Control': 'no-cache',
+          'Referer': new URL(url).origin + '/',
+        },
+        redirect: 'follow',
+      });
+      if (resp.ok) return resp;
+      // If we get a 403/429, try again with different UA
+      if (resp.status === 403 || resp.status === 429) {
+        await new Promise(r => setTimeout(r, 500 * (i + 1)));
+        continue;
+      }
+      return resp;
+    } catch (e) {
+      if (i === retries) return null;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return null;
+}
+
 async function extractMedia(pageUrl: string): Promise<MediaItem[]> {
   const media: MediaItem[] = [];
   const seen = new Set<string>();
 
   try {
-    const resp = await fetch(pageUrl, {
-      headers: { 'User-Agent': 'SiteInspector-MediaScanner/1.0' },
-      redirect: 'follow',
-    });
-    if (!resp.ok) return media;
+    const resp = await fetchWithRetry(pageUrl);
+    if (!resp || !resp.ok) return media;
 
     const ct = resp.headers.get('content-type') || '';
     if (!ct.includes('text/html')) return media;
@@ -42,6 +74,9 @@ async function extractMedia(pageUrl: string): Promise<MediaItem[]> {
 
     const addItem = (url: string | null, type: MediaItem['type'], tag: string, alt?: string, poster?: string) => {
       if (!url || seen.has(url)) return;
+      // Skip data URIs, tiny inline images, tracking pixels
+      if (url.startsWith('data:')) return;
+      if (url.includes('1x1') || url.includes('pixel') || url.includes('spacer')) return;
       seen.add(url);
       media.push({ url, type, alt, poster, sourceTag: tag, foundOn: pageUrl });
     };
@@ -96,6 +131,13 @@ async function extractMedia(pageUrl: string): Promise<MediaItem[]> {
       addItem(resolveUrl(pageUrl, m[2]), type, 'og-meta');
     }
 
+    // Also try reverse order: content before property
+    const ogRe2 = /<meta[^>]*content=["']([^"']+)["'][^>]*property=["'](og:(?:image|video|audio)(?::url)?)["']/gi;
+    while ((m = ogRe2.exec(html)) !== null) {
+      const type: MediaItem['type'] = m[2].includes('video') ? 'video' : m[2].includes('audio') ? 'audio' : 'image';
+      addItem(resolveUrl(pageUrl, m[1]), type, 'og-meta');
+    }
+
     // Links to media files
     const aRe = /<a[^>]*\shref=["']([^"']+)["']/gi;
     while ((m = aRe.exec(html)) !== null) {
@@ -105,6 +147,38 @@ async function extractMedia(pageUrl: string): Promise<MediaItem[]> {
       else if (VIDEO_EXTS.test(url)) addItem(url, 'video', 'a-href');
       else if (AUDIO_EXTS.test(url)) addItem(url, 'audio', 'a-href');
     }
+
+    // Extract URLs from JSON/JS data blocks (catches lazy-loaded content, JS-rendered sites)
+    // Look for URLs in script tags and JSON-LD
+    const scriptRe = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+    while ((m = scriptRe.exec(html)) !== null) {
+      const scriptContent = m[1];
+      // Find image/video URLs in script content
+      const urlInScriptRe = /["'](https?:\/\/[^"'\s]+\.(jpe?g|png|gif|webp|avif|mp4|webm|mov|m3u8)(?:\?[^"'\s]*)?)["']/gi;
+      let sm;
+      while ((sm = urlInScriptRe.exec(scriptContent)) !== null) {
+        const url = sm[1];
+        const ext = sm[2].toLowerCase();
+        if (VIDEO_EXTS.test('.' + ext)) {
+          addItem(url, 'video', 'script-data');
+        } else {
+          addItem(url, 'image', 'script-data');
+        }
+      }
+    }
+
+    // Extract from data-src, data-lazy-src, data-original attributes (lazy loading)
+    const lazyRe = /data-(?:src|lazy-src|original|bg|image)=["']([^"']+)["']/gi;
+    while ((m = lazyRe.exec(html)) !== null) {
+      const url = resolveUrl(pageUrl, m[1]);
+      if (!url) continue;
+      if (VIDEO_EXTS.test(url)) addItem(url, 'video', 'data-attr');
+      else if (AUDIO_EXTS.test(url)) addItem(url, 'audio', 'data-attr');
+      else if (IMAGE_EXTS.test(url) || !url.match(/\.(js|css|html|json|xml|txt)(\?|$)/i)) {
+        addItem(url, 'image', 'data-attr');
+      }
+    }
+
   } catch (e) {
     console.error('Error scanning', pageUrl, e);
   }
