@@ -189,8 +189,8 @@ const ProjectDetail = () => {
 
         {/* Tabs */}
         <Tabs defaultValue="findings" className="flex-1 flex flex-col min-h-0">
-          <div className="border-b border-border px-2">
-            <TabsList className="bg-transparent h-9 gap-0">
+          <div className="border-b border-border overflow-x-auto">
+            <TabsList className="bg-transparent h-9 gap-0 w-max">
               <TabsTrigger value="findings" className="data-[state=active]:bg-muted data-[state=active]:text-foreground text-xs rounded-none border-b-2 border-transparent data-[state=active]:border-primary">
                 <ShieldCheck className="w-3 h-3 mr-1" /> Findings ({findings.length})
               </TabsTrigger>
