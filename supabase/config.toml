@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.crawl-orchestrator]
 verify_jwt = false
+
+[functions.scan-media]
+verify_jwt = false
