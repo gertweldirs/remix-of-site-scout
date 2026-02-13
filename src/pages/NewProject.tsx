@@ -5,20 +5,58 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, Loader2 } from "lucide-react";
+import { useCreateProject } from "@/hooks/use-projects";
+import { useToast } from "@/hooks/use-toast";
 
 const NewProject = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const createProject = useCreateProject();
   const [agreed, setAgreed] = useState(false);
   const [respectRobots, setRespectRobots] = useState(true);
   const [sameDomain, setSameDomain] = useState(true);
   const [followRedirects, setFollowRedirects] = useState(true);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agreed) return;
-    // Demo: navigate to project
-    navigate("/projects/proj_demo_001");
+
+    const form = e.target as HTMLFormElement;
+    const name = (form.elements.namedItem("name") as HTMLInputElement).value || "Untitled Project";
+    const startUrl = (form.elements.namedItem("url") as HTMLInputElement).value;
+    const maxDepth = parseInt((form.elements.namedItem("depth") as HTMLInputElement).value) || 3;
+    const maxPages = parseInt((form.elements.namedItem("pages") as HTMLInputElement).value) || 200;
+    const concurrency = parseInt((form.elements.namedItem("concurrency") as HTMLInputElement).value) || 2;
+    const crawlDelay = parseInt((form.elements.namedItem("delay") as HTMLInputElement).value) || 1000;
+    const userAgent = (form.elements.namedItem("ua") as HTMLInputElement).value || "SiteInspector/1.0";
+    const excludeRaw = (form.elements.namedItem("exclude") as HTMLInputElement).value;
+    const includeRaw = (form.elements.namedItem("include") as HTMLInputElement).value;
+
+    if (!startUrl) {
+      toast({ title: "Start URL is required", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const project = await createProject.mutateAsync({
+        name,
+        start_url: startUrl,
+        max_depth: maxDepth,
+        max_pages: maxPages,
+        concurrency,
+        crawl_delay: crawlDelay,
+        user_agent: userAgent,
+        respect_robots: respectRobots,
+        same_domain_only: sameDomain,
+        follow_redirects: followRedirects,
+        exclude_patterns: excludeRaw ? excludeRaw.split(",").map(s => s.trim()) : [],
+        include_patterns: includeRaw ? includeRaw.split(",").map(s => s.trim()) : [],
+      });
+      navigate(`/projects/${project.id}`);
+    } catch (error: any) {
+      toast({ title: "Error creating project", description: error.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -28,7 +66,6 @@ const NewProject = () => {
         <p className="text-sm text-muted-foreground">Configure a new website inspection</p>
       </div>
 
-      {/* Disclaimer */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -44,11 +81,7 @@ const NewProject = () => {
               anti-bot protections. This tool is for auditing and observability purposes only.
             </p>
             <div className="flex items-center gap-2 pt-1">
-              <Checkbox
-                id="agree"
-                checked={agreed}
-                onCheckedChange={(v) => setAgreed(v === true)}
-              />
+              <Checkbox id="agree" checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} />
               <Label htmlFor="agree" className="text-xs text-foreground cursor-pointer">
                 I confirm I have permission to scan the target website
               </Label>
@@ -61,11 +94,11 @@ const NewProject = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="name">Project Name</Label>
-            <Input id="name" placeholder="My Website Audit" defaultValue="" />
+            <Input id="name" placeholder="My Website Audit" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="url">Start URL</Label>
-            <Input id="url" placeholder="https://example.com" className="font-mono text-sm" />
+            <Input id="url" placeholder="https://example.com" className="font-mono text-sm" required />
           </div>
         </div>
 
@@ -76,15 +109,15 @@ const NewProject = () => {
           </div>
           <div className="space-y-2">
             <Label htmlFor="pages">Max Pages</Label>
-            <Input id="pages" type="number" defaultValue={500} min={1} max={10000} />
+            <Input id="pages" type="number" defaultValue={200} min={1} max={10000} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="concurrency">Concurrency</Label>
-            <Input id="concurrency" type="number" defaultValue={5} min={1} max={20} />
+            <Input id="concurrency" type="number" defaultValue={2} min={1} max={20} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="delay">Crawl Delay (ms)</Label>
-            <Input id="delay" type="number" defaultValue={200} min={0} max={5000} />
+            <Input id="delay" type="number" defaultValue={1000} min={0} max={5000} />
           </div>
         </div>
 
@@ -104,7 +137,6 @@ const NewProject = () => {
           </div>
         </div>
 
-        {/* Toggle options */}
         <div className="flex flex-wrap gap-6">
           <div className="flex items-center gap-2">
             <Switch id="robots" checked={respectRobots} onCheckedChange={setRespectRobots} />
@@ -122,9 +154,10 @@ const NewProject = () => {
 
         <button
           type="submit"
-          disabled={!agreed}
-          className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
+          disabled={!agreed || createProject.isPending}
+          className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
         >
+          {createProject.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
           Create Project & Start Crawl
         </button>
       </form>
