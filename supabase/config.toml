@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.crawl-page]
 verify_jwt = false
+
+[functions.crawl-orchestrator]
+verify_jwt = false

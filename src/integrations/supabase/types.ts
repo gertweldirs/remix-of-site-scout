@@ -51,34 +51,40 @@ export type Database = {
       }
       crawl_runs: {
         Row: {
+          consent: boolean
           ended_at: string | null
           errors_count: number
           id: string
           pages_scanned: number
           pages_total: number
           project_id: string
+          render_pass: boolean
           started_at: string
           status: string
           warnings_count: number
         }
         Insert: {
+          consent?: boolean
           ended_at?: string | null
           errors_count?: number
           id?: string
           pages_scanned?: number
           pages_total?: number
           project_id: string
+          render_pass?: boolean
           started_at?: string
           status?: string
           warnings_count?: number
         }
         Update: {
+          consent?: boolean
           ended_at?: string | null
           errors_count?: number
           id?: string
           pages_scanned?: number
           pages_total?: number
           project_id?: string
+          render_pass?: boolean
           started_at?: string
           status?: string
           warnings_count?: number
@@ -89,6 +95,47 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      endpoints: {
+        Row: {
+          crawl_run_id: string
+          found_in: string
+          id: string
+          line: number
+          method: string
+          operation_name: string | null
+          type: string
+          url: string
+        }
+        Insert: {
+          crawl_run_id: string
+          found_in?: string
+          id?: string
+          line?: number
+          method?: string
+          operation_name?: string | null
+          type?: string
+          url: string
+        }
+        Update: {
+          crawl_run_id?: string
+          found_in?: string
+          id?: string
+          line?: number
+          method?: string
+          operation_name?: string | null
+          type?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "endpoints_crawl_run_id_fkey"
+            columns: ["crawl_run_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -127,6 +174,88 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "findings_crawl_run_id_fkey"
+            columns: ["crawl_run_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      graph_edges: {
+        Row: {
+          crawl_run_id: string
+          id: string
+          label: string
+          source_id: string
+          source_type: string
+          target_id: string
+          target_type: string
+        }
+        Insert: {
+          crawl_run_id: string
+          id?: string
+          label?: string
+          source_id: string
+          source_type?: string
+          target_id: string
+          target_type?: string
+        }
+        Update: {
+          crawl_run_id?: string
+          id?: string
+          label?: string
+          source_id?: string
+          source_type?: string
+          target_id?: string
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "graph_edges_crawl_run_id_fkey"
+            columns: ["crawl_run_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      network_requests: {
+        Row: {
+          crawl_run_id: string
+          id: string
+          initiator: string
+          method: string
+          size: number
+          status_code: number
+          timing: number
+          type: string
+          url: string
+        }
+        Insert: {
+          crawl_run_id: string
+          id?: string
+          initiator?: string
+          method?: string
+          size?: number
+          status_code?: number
+          timing?: number
+          type?: string
+          url: string
+        }
+        Update: {
+          crawl_run_id?: string
+          id?: string
+          initiator?: string
+          method?: string
+          size?: number
+          status_code?: number
+          timing?: number
+          type?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "network_requests_crawl_run_id_fkey"
             columns: ["crawl_run_id"]
             isOneToOne: false
             referencedRelation: "crawl_runs"
@@ -299,6 +428,88 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "search_index_entries_crawl_run_id_fkey"
+            columns: ["crawl_run_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      secrets_found: {
+        Row: {
+          context: string
+          crawl_run_id: string
+          hash: string
+          id: string
+          line: number
+          location: string
+          masked_value: string
+          severity: string
+          type: string
+        }
+        Insert: {
+          context?: string
+          crawl_run_id: string
+          hash?: string
+          id?: string
+          line?: number
+          location?: string
+          masked_value?: string
+          severity?: string
+          type?: string
+        }
+        Update: {
+          context?: string
+          crawl_run_id?: string
+          hash?: string
+          id?: string
+          line?: number
+          location?: string
+          masked_value?: string
+          severity?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "secrets_found_crawl_run_id_fkey"
+            columns: ["crawl_run_id"]
+            isOneToOne: false
+            referencedRelation: "crawl_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tech_stack_items: {
+        Row: {
+          category: string
+          confidence: number
+          crawl_run_id: string
+          icon: string
+          id: string
+          name: string
+          version: string | null
+        }
+        Insert: {
+          category?: string
+          confidence?: number
+          crawl_run_id: string
+          icon?: string
+          id?: string
+          name: string
+          version?: string | null
+        }
+        Update: {
+          category?: string
+          confidence?: number
+          crawl_run_id?: string
+          icon?: string
+          id?: string
+          name?: string
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tech_stack_items_crawl_run_id_fkey"
             columns: ["crawl_run_id"]
             isOneToOne: false
             referencedRelation: "crawl_runs"

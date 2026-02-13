@@ -5,21 +5,71 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
-import { ShieldAlert } from "lucide-react";
+import { ShieldAlert, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 const NewProject = () => {
   const navigate = useNavigate();
+  const { session } = useAuth();
   const [agreed, setAgreed] = useState(false);
   const [respectRobots, setRespectRobots] = useState(true);
   const [sameDomain, setSameDomain] = useState(true);
   const [followRedirects, setFollowRedirects] = useState(true);
   const [renderPass, setRenderPass] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [name, setName] = useState("");
+  const [startUrl, setStartUrl] = useState("");
+  const [maxDepth, setMaxDepth] = useState(3);
+  const [maxPages, setMaxPages] = useState(200);
+  const [concurrency, setConcurrency] = useState(2);
+  const [crawlDelay, setCrawlDelay] = useState(1000);
+  const [userAgent, setUserAgent] = useState("SiteInspector/1.0");
+  const [excludePatterns, setExcludePatterns] = useState("");
+  const [includePatterns, setIncludePatterns] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agreed) return;
-    // Demo: navigate to project
-    navigate("/projects/proj_demo_001");
+    if (!agreed || !session?.user?.id) return;
+
+    let formattedUrl = startUrl.trim();
+    if (!formattedUrl.startsWith("http://") && !formattedUrl.startsWith("https://")) {
+      formattedUrl = `https://${formattedUrl}`;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.from("projects").insert({
+        name: name || "Untitled Project",
+        start_url: formattedUrl,
+        max_depth: maxDepth,
+        max_pages: maxPages,
+        concurrency,
+        crawl_delay: crawlDelay,
+        user_agent: userAgent,
+        same_domain_only: sameDomain,
+        respect_robots: respectRobots,
+        follow_redirects: followRedirects,
+        exclude_patterns: excludePatterns ? excludePatterns.split(",").map(s => s.trim()) : [],
+        include_patterns: includePatterns ? includePatterns.split(",").map(s => s.trim()) : [],
+        user_id: session.user.id,
+        status: "idle",
+      }).select().single();
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Project created!");
+      navigate(`/projects/${data.id}`);
+    } catch (err) {
+      toast.error("Failed to create project");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -62,46 +112,46 @@ const NewProject = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="name">Project Name</Label>
-            <Input id="name" placeholder="My Website Audit" defaultValue="" />
+            <Input id="name" placeholder="My Website Audit" value={name} onChange={e => setName(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="url">Start URL</Label>
-            <Input id="url" placeholder="https://example.com" className="font-mono text-sm" />
+            <Input id="url" placeholder="https://example.com" className="font-mono text-sm" value={startUrl} onChange={e => setStartUrl(e.target.value)} required />
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-2">
             <Label htmlFor="depth">Max Depth</Label>
-            <Input id="depth" type="number" defaultValue={3} min={1} max={10} />
+            <Input id="depth" type="number" value={maxDepth} onChange={e => setMaxDepth(Number(e.target.value))} min={1} max={10} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="pages">Max Pages</Label>
-            <Input id="pages" type="number" defaultValue={200} min={1} max={10000} />
+            <Input id="pages" type="number" value={maxPages} onChange={e => setMaxPages(Number(e.target.value))} min={1} max={10000} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="concurrency">Concurrency</Label>
-            <Input id="concurrency" type="number" defaultValue={2} min={1} max={20} />
+            <Input id="concurrency" type="number" value={concurrency} onChange={e => setConcurrency(Number(e.target.value))} min={1} max={20} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="delay">Crawl Delay (ms)</Label>
-            <Input id="delay" type="number" defaultValue={1000} min={0} max={5000} />
+            <Input id="delay" type="number" value={crawlDelay} onChange={e => setCrawlDelay(Number(e.target.value))} min={0} max={5000} />
           </div>
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="ua">User Agent</Label>
-          <Input id="ua" defaultValue="SiteInspector/1.0" className="font-mono text-sm" />
+          <Input id="ua" value={userAgent} onChange={e => setUserAgent(e.target.value)} className="font-mono text-sm" />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-2">
             <Label htmlFor="exclude">Exclude Patterns</Label>
-            <Input id="exclude" placeholder="/admin/*, /api/*" className="font-mono text-xs" />
+            <Input id="exclude" placeholder="/admin/*, /api/*" className="font-mono text-xs" value={excludePatterns} onChange={e => setExcludePatterns(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="include">Include Patterns</Label>
-            <Input id="include" placeholder="(optional)" className="font-mono text-xs" />
+            <Input id="include" placeholder="(optional)" className="font-mono text-xs" value={includePatterns} onChange={e => setIncludePatterns(e.target.value)} />
           </div>
         </div>
 
@@ -127,10 +177,11 @@ const NewProject = () => {
 
         <button
           type="submit"
-          disabled={!agreed}
-          className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors"
+          disabled={!agreed || loading}
+          className="w-full py-2.5 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
         >
-          Create Project & Start Crawl
+          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+          {loading ? "Creating..." : "Create Project & Start Crawl"}
         </button>
       </form>
     </div>
