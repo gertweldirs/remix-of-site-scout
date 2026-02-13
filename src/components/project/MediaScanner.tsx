@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -20,50 +20,117 @@ interface MediaItem {
   streamUrl?: string;
 }
 
-function HlsVideo({ src, poster }: { src: string; poster?: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: string; foundOn?: string }>(
+  function HlsVideo({ src, poster, foundOn }, _ref) {
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [failed, setFailed] = useState(false);
+    const [proxyUrl, setProxyUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+    useEffect(() => {
+      setFailed(false);
+      setProxyUrl(null);
+      const video = videoRef.current;
+      if (!video) return;
 
-    if (src.includes('.m3u8') && Hls.isSupported()) {
-      const hls = new Hls({
-        xhrSetup: (xhr) => {
-          xhr.withCredentials = false;
-        },
-      });
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      const isM3u8 = src.includes('.m3u8');
+
+      // For m3u8: try proxying the manifest through our edge function
+      if (isM3u8 && Hls.isSupported()) {
+        // Build a proxy URL that returns the m3u8 content
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const proxyEndpoint = `${supabaseUrl}/functions/v1/media-proxy`;
+
+        const hls = new Hls({
+          xhrSetup: (xhr, url) => {
+            // Don't modify requests to our own proxy
+            if (url.includes('functions/v1/media-proxy')) return;
+            // For segment requests, we can't easily proxy them, so try direct
+          },
+        });
+
+        // First try: load via proxy to bypass CORS
+        const tryProxy = async () => {
+          try {
+            const resp = await fetch(proxyEndpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': anonKey,
+                'Authorization': `Bearer ${anonKey}`,
+              },
+              body: JSON.stringify({ url: src, refererUrl: foundOn }),
+            });
+            if (resp.ok) {
+              const blob = await resp.blob();
+              const blobUrl = URL.createObjectURL(blob);
+              setProxyUrl(blobUrl);
+              hls.loadSource(blobUrl);
+              hls.attachMedia(video);
+              hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => {});
+              });
+            } else {
+              throw new Error('Proxy returned ' + resp.status);
+            }
+          } catch {
+            // Proxy failed, try direct
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              video.play().catch(() => {});
+            });
+          }
+        };
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            setFailed(true);
+          }
+        });
+
+        tryProxy();
+        return () => {
+          hls.destroy();
+          if (proxyUrl) URL.revokeObjectURL(proxyUrl);
+        };
+      } else {
+        video.src = src;
+        video.onerror = () => setFailed(true);
         video.play().catch(() => {});
-      });
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.warn('HLS error:', data.type, data.details);
-        if (data.fatal) {
-          // Try direct playback as fallback
-          video.src = src;
-          video.play().catch(() => {});
-        }
-      });
-      return () => hls.destroy();
-    } else {
-      // Safari supports HLS natively, or it's a direct MP4
-      video.src = src;
-      video.play().catch(() => {});
-    }
-  }, [src]);
+      }
+    }, [src, foundOn]);
 
-  return (
-    <video
-      ref={videoRef}
-      controls
-      poster={poster}
-      className="max-w-full max-h-[70vh] rounded"
-      playsInline
-    />
-  );
-}
+    if (failed) {
+      return (
+        <div className="flex flex-col items-center gap-3 p-8 text-center">
+          <Film className="w-12 h-12 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Video can't be played here — the source blocks external access.
+          </p>
+          <a
+            href={src}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+          >
+            <ExternalLink className="w-4 h-4" /> Open in Browser
+          </a>
+        </div>
+      );
+    }
+
+    return (
+      <video
+        ref={videoRef}
+        controls
+        poster={poster}
+        className="max-w-full max-h-[70vh] rounded"
+        playsInline
+      />
+    );
+  }
+);
 
 interface Props {
   pageUrls: string[];
@@ -671,7 +738,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                     {(preview.streamUrl || preview.url).split("/").pop()?.split("?")[0] || "file"}
                   </span>
                   {preview.streamUrl && (
-                    <span className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 font-medium">HLS</span>
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-primary/20 text-primary font-medium">HLS</span>
                   )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -704,6 +771,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   <HlsVideo
                     src={preview.streamUrl || preview.url}
                     poster={preview.poster}
+                    foundOn={preview.foundOn}
                   />
                 ) : (
                   <div className="flex flex-col items-center gap-3">
