@@ -18,6 +18,7 @@ import { TechStackTab } from "@/components/project/TechStackTab";
 import { GraphTab } from "@/components/project/GraphTab";
 import { DetailPanel } from "@/components/project/DetailPanel";
 import { AIChat } from "@/components/project/AIChat";
+import { MediaScanner } from "@/components/project/MediaScanner";
 import { useProjectData } from "@/hooks/use-project-data";
 import { useCrawl } from "@/hooks/use-crawl";
 
@@ -161,6 +162,10 @@ const ProjectDetail = () => {
                 <CheckCircle2 className="w-3 h-3" /> Consent
               </span>
             )}
+            <MediaScanner
+              pageUrls={pages.map(p => p.url)}
+              projectName={project.name}
+            />
             <ExportMenu
               projectName={project.name}
               startUrl={project.startUrl}
