@@ -5,7 +5,7 @@ import { StatCard } from "@/components/StatCard";
 import { StatusDot } from "@/components/StatusDot";
 import { demoProject, demoCrawlRun, demoPages, demoFindings, demoAssets, demoSearchResults, demoNetworkRequests, demoEndpoints, demoSecrets, demoTechStack, demoGraphNodes, demoGraphEdges } from "@/lib/demo-data";
 import { motion } from "framer-motion";
-import { ArrowLeft, ShieldCheck, Globe, Code2, FileCode, Package, Network, Radio, KeyRound, GitFork, CheckCircle2, Play, Loader2, RefreshCw, MonitorSmartphone } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Globe, Code2, FileCode, Package, Network, Radio, KeyRound, GitFork, CheckCircle2, Play, Loader2, RefreshCw, MonitorSmartphone, MessageSquare } from "lucide-react";
 import { ExportMenu } from "@/components/ExportMenu";
 import { FindingsTab } from "@/components/project/FindingsTab";
 import { PagesTab } from "@/components/project/PagesTab";
@@ -17,7 +17,7 @@ import { SecretsTab } from "@/components/project/SecretsTab";
 import { TechStackTab } from "@/components/project/TechStackTab";
 import { GraphTab } from "@/components/project/GraphTab";
 import { DetailPanel } from "@/components/project/DetailPanel";
-import { AIChat } from "@/components/project/AIChat";
+import { AIChartSidebar } from "@/components/project/AIChartSidebar";
 import { MediaScanner } from "@/components/project/MediaScanner";
 import { useProjectData } from "@/hooks/use-project-data";
 import { useCrawl } from "@/hooks/use-crawl";
@@ -25,6 +25,7 @@ import { useCrawl } from "@/hooks/use-crawl";
 const ProjectDetail = () => {
   const { id } = useParams();
   const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
   const { startCrawl, crawling, progress } = useCrawl();
   const projectData = useProjectData(id);
 
@@ -282,7 +283,7 @@ const ProjectDetail = () => {
         </div>
       )}
 
-      <AIChat />
+      <AIChartSidebar isOpen={aiChatOpen} onClose={() => setAiChatOpen(false)} />
     </div>
   );
 };
