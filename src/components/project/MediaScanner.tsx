@@ -23,11 +23,46 @@ interface MediaItem {
 const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: string; foundOn?: string }>(
   function HlsVideo({ src, poster, foundOn }, _ref) {
     const videoRef = useRef<HTMLVideoElement>(null);
-    const [status, setStatus] = useState<'loading' | 'playing' | 'failed'>('loading');
+    const [status, setStatus] = useState<'loading' | 'playing' | 'failed' | 'agent-loading' | 'agent-done'>('loading');
+    const [agentUrl, setAgentUrl] = useState<string | null>(null);
     const hlsRef = useRef<Hls | null>(null);
+
+    // Auto-run agent when playback fails
+    const runAgent = useCallback(async () => {
+      if (!foundOn) return;
+      setStatus('agent-loading');
+      try {
+        const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
+          body: { url: foundOn },
+        });
+        if (error) throw error;
+
+        const videos = ((data?.media || []) as MediaItem[]).filter(m => m.type === 'video');
+        const videoIdMatch = src.match(/\/(\d+)\.m3u8/);
+        const videoId = videoIdMatch?.[1];
+        let target = videos[0];
+        if (videoId) {
+          const match = videos.find(v => v.streamUrl?.includes(videoId) || v.url?.includes(videoId));
+          if (match) target = match;
+        }
+
+        if (target?.downloadUrl && !target.downloadUrl.includes('.m3u8')) {
+          setAgentUrl(target.downloadUrl);
+          setStatus('agent-done');
+        } else if (target?.streamUrl) {
+          setAgentUrl(target.streamUrl);
+          setStatus('agent-done');
+        } else {
+          setStatus('failed');
+        }
+      } catch {
+        setStatus('failed');
+      }
+    }, [src, foundOn]);
 
     useEffect(() => {
       setStatus('loading');
+      setAgentUrl(null);
       const video = videoRef.current;
       if (!video) return;
 
@@ -45,15 +80,13 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
       }
 
       if (!Hls.isSupported()) {
-        // Safari native HLS
         video.src = src;
         video.onloadeddata = () => setStatus('playing');
-        video.onerror = () => setStatus('failed');
+        video.onerror = () => runAgent();
         video.play().catch(() => {});
         return;
       }
 
-      // Try direct first (browser may have cookies), then proxy fallback
       const tryDirect = () => {
         const hls = new Hls();
         hlsRef.current = hls;
@@ -67,11 +100,11 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (data.fatal && !directFailed) {
             directFailed = true;
-            console.warn('Direct HLS failed, trying proxy...');
             hls.destroy();
             tryProxy();
           } else if (data.fatal) {
-            setStatus('failed');
+            // Proxy also failed — auto-run agent
+            runAgent();
           }
         });
 
@@ -119,13 +152,14 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
           });
 
           hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) setStatus('failed');
+            if (data.fatal) runAgent();
           });
 
           hls.loadSource(blobUrl);
           hls.attachMedia(video);
         } catch {
-          setStatus('failed');
+          // Proxy failed — auto-run agent
+          runAgent();
         }
       };
 
@@ -135,20 +169,67 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
         hlsRef.current?.destroy();
         hlsRef.current = null;
       };
-    }, [src, foundOn]);
+    }, [src, foundOn, runAgent]);
+
+    if (status === 'agent-loading') {
+      return (
+        <div className="flex flex-col items-center gap-3 p-8 text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">
+            Stream geblokkeerd — agent haalt automatisch verse links op...
+          </p>
+        </div>
+      );
+    }
+
+    if (status === 'agent-done' && agentUrl) {
+      const isStream = agentUrl.includes('.m3u8');
+      return (
+        <div className="flex flex-col items-center gap-3 p-8 text-center">
+          <Bot className="w-10 h-10 text-primary" />
+          <p className="text-sm text-foreground font-medium">Verse link gevonden!</p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {!isStream ? (
+              <button
+                onClick={() => window.open(agentUrl, '_blank')}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+              >
+                <Download className="w-4 h-4" /> Download openen
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(agentUrl);
+                  toast.success("Stream URL gekopieerd! Plak in VLC: Media → Open Network Stream");
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+              >
+                <Copy className="w-4 h-4" /> Kopieer voor VLC
+              </button>
+            )}
+            <button
+              onClick={() => window.open(agentUrl, '_blank')}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-muted text-foreground text-sm font-medium hover:bg-muted/80"
+            >
+              <ExternalLink className="w-4 h-4" /> Open in browser
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     if (status === 'failed') {
       return (
         <div className="flex flex-col items-center gap-3 p-8 text-center">
           <Film className="w-12 h-12 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Video can't be played inline — trying alternative methods below.
+            Video kan niet worden afgespeeld of opgehaald.
           </p>
           <div className="flex flex-wrap gap-2 justify-center">
             <button
               onClick={() => {
                 navigator.clipboard.writeText(src);
-                toast.success("Stream URL copied! Paste in VLC: Media → Open Network Stream");
+                toast.success("Stream URL gekopieerd! Plak in VLC: Media → Open Network Stream");
               }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-muted text-foreground text-sm font-medium hover:bg-muted/80"
             >
@@ -162,10 +243,13 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
             >
               <ExternalLink className="w-4 h-4" /> Open in Browser
             </a>
+            <button
+              onClick={runAgent}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:bg-accent/80"
+            >
+              <Bot className="w-4 h-4" /> Opnieuw proberen
+            </button>
           </div>
-          <p className="text-[10px] text-muted-foreground max-w-xs">
-            Tip: Use the "Agent Download" button in the header to auto-extract a fresh stream URL.
-          </p>
         </div>
       );
     }
