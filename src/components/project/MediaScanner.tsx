@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search } from "lucide-react";
+import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search, Copy, Bot } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -142,16 +142,30 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
         <div className="flex flex-col items-center gap-3 p-8 text-center">
           <Film className="w-12 h-12 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Video can't be played here — the source blocks external access.
+            Video can't be played inline — trying alternative methods below.
           </p>
-          <a
-            href={src}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-          >
-            <ExternalLink className="w-4 h-4" /> Open in Browser
-          </a>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(src);
+                toast.success("Stream URL copied! Paste in VLC: Media → Open Network Stream");
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-muted text-foreground text-sm font-medium hover:bg-muted/80"
+            >
+              <Copy className="w-4 h-4" /> Copy URL for VLC
+            </button>
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            >
+              <ExternalLink className="w-4 h-4" /> Open in Browser
+            </a>
+          </div>
+          <p className="text-[10px] text-muted-foreground max-w-xs">
+            Tip: Use the "Agent Download" button in the header to auto-extract a fresh stream URL.
+          </p>
         </div>
       );
     }
@@ -174,6 +188,68 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
     );
   }
 );
+
+function VideoAgentButton({ pageUrl, streamUrl }: { pageUrl: string; streamUrl: string }) {
+  const [agentState, setAgentState] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
+
+  const runAgent = async () => {
+    setAgentState('working');
+    toast.info("Agent is loading the page in a headless browser to extract fresh URLs...");
+    try {
+      // Use firecrawl-scrape which already extracts download URLs + fresh m3u8
+      const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
+        body: { url: pageUrl },
+      });
+
+      if (error) throw error;
+
+      // Find matching video by stream URL
+      const videos = (data?.media || []).filter((m: MediaItem) => m.type === 'video');
+      const videoIdMatch = streamUrl.match(/\/(\d+)\.m3u8/);
+      const videoId = videoIdMatch?.[1];
+
+      let target = videos[0];
+      if (videoId) {
+        const match = videos.find((v: MediaItem) => v.streamUrl?.includes(videoId) || v.url?.includes(videoId));
+        if (match) target = match;
+      }
+
+      if (target?.downloadUrl && !target.downloadUrl.includes('.m3u8')) {
+        // Open fresh download URL in browser
+        window.open(target.downloadUrl, '_blank');
+        toast.success("Fresh download link opened! Your browser session should authenticate it.");
+        setAgentState('done');
+      } else if (target?.streamUrl) {
+        navigator.clipboard.writeText(target.streamUrl);
+        toast.success("Fresh stream URL copied! Paste in VLC: Media → Open Network Stream");
+        setAgentState('done');
+      } else {
+        toast.error("No video found on page");
+        setAgentState('error');
+      }
+    } catch (e) {
+      console.error('Agent error:', e);
+      toast.error("Agent failed — try Copy URL for VLC instead");
+      setAgentState('error');
+    }
+  };
+
+  return (
+    <button
+      onClick={runAgent}
+      disabled={agentState === 'working'}
+      className="flex items-center gap-1 px-2 py-1 rounded bg-accent text-accent-foreground text-xs hover:bg-accent/80 disabled:opacity-50"
+      title="Use headless browser to get fresh download URL"
+    >
+      {agentState === 'working' ? (
+        <Loader2 className="w-3 h-3 animate-spin" />
+      ) : (
+        <Bot className="w-3 h-3" />
+      )}
+      {agentState === 'working' ? 'Agent working...' : agentState === 'done' ? 'Done ✓' : 'Agent Download'}
+    </button>
+  );
+}
 
 interface Props {
   pageUrls: string[];
@@ -300,6 +376,24 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
 
   const downloadOne = async (item: MediaItem) => {
     const url = item.downloadUrl || item.url;
+    
+    // For videos, prefer opening in browser since sites use session-based tokens
+    if (item.type === 'video') {
+      const downloadUrl = item.downloadUrl;
+      if (downloadUrl && !downloadUrl.includes('.m3u8')) {
+        // Direct download URL exists - open in new tab (browser has cookies)
+        window.open(downloadUrl, '_blank');
+        toast.info("Download opened in new tab — your browser session handles authentication.");
+        return;
+      }
+      // m3u8 stream — copy URL for VLC
+      const streamUrl = item.streamUrl || item.url;
+      navigator.clipboard.writeText(streamUrl);
+      toast.success("Stream URL copied! Open VLC → Media → Open Network Stream → Paste");
+      return;
+    }
+    
+    // For images/audio, try direct/proxy download
     setDownloading(url);
     try {
       const blob = await proxyFetch(item);
@@ -309,9 +403,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
       a.click();
       URL.revokeObjectURL(a.href);
     } catch {
-      // For videos, open the download URL or stream URL in new tab
-      const fallbackUrl = item.downloadUrl || item.streamUrl || item.url;
-      window.open(fallbackUrl, "_blank");
+      window.open(url, "_blank");
       toast.info("Opened in new tab — your browser may be able to download it directly.");
     } finally {
       setDownloading(null);
@@ -785,6 +877,22 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
+                  {preview.type === 'video' && preview.streamUrl && (
+                    <VideoAgentButton pageUrl={preview.foundOn} streamUrl={preview.streamUrl} />
+                  )}
+                  {preview.type === 'video' && (preview.streamUrl || preview.url) && (
+                    <button
+                      onClick={() => {
+                        const url = preview.streamUrl || preview.url;
+                        navigator.clipboard.writeText(url);
+                        toast.success("URL copied! Paste in VLC: Media → Open Network Stream");
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded bg-muted text-muted-foreground text-xs hover:text-foreground"
+                      title="Copy stream URL for VLC/ffmpeg"
+                    >
+                      <Copy className="w-3 h-3" /> Copy URL
+                    </button>
+                  )}
                   {preview.type === 'video' && (
                     <button
                       onClick={() => window.open(preview.downloadUrl || preview.streamUrl || preview.url, '_blank')}
