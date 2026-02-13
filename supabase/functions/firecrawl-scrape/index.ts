@@ -30,7 +30,6 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
     if (!item.url || seen.has(item.url)) return;
     if (item.url.startsWith('data:')) return;
     if (item.url.includes('1x1') || item.url.includes('pixel') || item.url.includes('spacer')) return;
-    // Skip site icons/assets
     if (item.url.includes('/asset/images/icon/')) return;
     seen.add(item.url);
     media.push({ foundOn: pageUrl, ...item } as MediaItem);
@@ -39,104 +38,83 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
   let m;
 
   // === PRIORITY 1: Extract from light-gallery-item data attributes (original quality) ===
-  // Photos: data-src has original, data-thumb has thumbnail
-  const lgItemRe = /<div[^>]*class="[^"]*light-gallery-item[^"]*"[^>]*>/gi;
-  while ((m = lgItemRe.exec(html)) !== null) {
-    const tag = m[0];
+  // Find each light-gallery-item block by searching for the class, then extracting the full tag
+  // by finding matching quotes for each attribute (handles > inside quoted values like data-sub-html)
+  const lgClassRe = /class="[^"]*light-gallery-item[^"]*"/gi;
+  let lgMatch;
+  while ((lgMatch = lgClassRe.exec(html)) !== null) {
+    // Walk backwards to find <div, then forwards to find the closing >
+    const classPos = lgMatch.index;
+    let tagStart = html.lastIndexOf('<div', classPos);
+    if (tagStart === -1) tagStart = html.lastIndexOf('<DIV', classPos);
+    if (tagStart === -1) continue;
     
-    // Original image from data-src
-    const dataSrc = tag.match(/data-src=["']([^"']+)["']/i)?.[1];
-    const dataThumb = tag.match(/data-thumb=["']([^"']+)["']/i)?.[1];
-    const dataTitle = tag.match(/data-title=["']([^"']+)["']/i)?.[1];
+    // Find the closing > by properly handling quoted attributes
+    let i = tagStart + 4; // skip <div
+    while (i < html.length) {
+      if (html[i] === '"') {
+        i = html.indexOf('"', i + 1);
+        if (i === -1) break;
+      } else if (html[i] === "'") {
+        i = html.indexOf("'", i + 1);
+        if (i === -1) break;
+      } else if (html[i] === '>') {
+        break;
+      }
+      i++;
+    }
+    if (i >= html.length) continue;
     
-    // Video from data-video JSON
-    const dataVideoMatch = tag.match(/data-video=["'](\{[^"']*\})["']/i) || 
-                           tag.match(/data-video="([^"]+)"/i);
-    
-    // Download link from data-sub-html
-    const subHtmlMatch = tag.match(/data-sub-html=["']([^"']+)["']/i);
+    const tag = html.substring(tagStart, i + 1);
+    const dataSrc = tag.match(/data-src="([^"]+)"/i)?.[1];
+    const dataThumb = tag.match(/data-thumb="([^"]+)"/i)?.[1];
+    const dataTitle = tag.match(/data-title="([^"]+)"/i)?.[1];
+    const dataVideoMatch = tag.match(/data-video="([^"]+)"/i);
+    const subHtmlMatch = tag.match(/data-sub-html="([^"]+)"/i);
     let downloadUrl: string | undefined;
     if (subHtmlMatch) {
-      // Decode HTML entities and extract href
-      const subHtml = subHtmlMatch[1]
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
+      const subHtml = subHtmlMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
       const dlMatch = subHtml.match(/href="([^"]+)"/i);
       if (dlMatch) downloadUrl = dlMatch[1];
     }
 
     if (dataVideoMatch) {
-      // It's a video item
       let videoSrc: string | undefined;
       try {
-        const videoJson = dataVideoMatch[1]
-          .replace(/&quot;/g, '"')
-          .replace(/&amp;/g, '&');
+        const videoJson = dataVideoMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
         const parsed = JSON.parse(videoJson);
-        if (parsed.source?.[0]?.src) {
-          videoSrc = parsed.source[0].src;
-        }
-      } catch { /* ignore parse errors */ }
-      
-      // Add with download URL as primary (direct download), video stream as url
+        if (parsed.source?.[0]?.src) videoSrc = parsed.source[0].src;
+      } catch { /* ignore */ }
       const primaryUrl = downloadUrl || videoSrc;
       if (primaryUrl) {
         addItem({
-          url: primaryUrl,
-          type: 'video',
-          sourceTag: 'gallery-video',
+          url: primaryUrl, type: 'video', sourceTag: 'gallery-video',
           poster: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
-          alt: dataTitle,
-          downloadUrl: downloadUrl,
-          thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
+          alt: dataTitle, downloadUrl, thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
         });
       }
     } else if (dataSrc) {
-      // It's a photo item - use data-src for ORIGINAL quality
       const originalUrl = resolveUrl(pageUrl, dataSrc);
       if (originalUrl) {
         addItem({
-          url: originalUrl,
-          type: 'image',
-          sourceTag: 'gallery-original',
-          alt: dataTitle,
-          thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
+          url: originalUrl, type: 'image', sourceTag: 'gallery-original',
+          alt: dataTitle, thumbnailUrl: dataThumb ? resolveUrl(pageUrl, dataThumb) || undefined : undefined,
         });
       }
     }
   }
 
-  // === PRIORITY 2: Standard extraction for non-gallery content ===
-  
-  // img tags (skip thumbnails we already have originals for)
+  // === PRIORITY 2: Standard extraction ===
   const imgRe = /<img[^>]*\ssrc=["']([^"']+)["'][^>]*/gi;
   while ((m = imgRe.exec(html)) !== null) {
-    const src = m[1];
-    // Skip 1x1 placeholders and thumbnails if we already got originals
-    if (src.startsWith('data:')) continue;
-    const altMatch = m[0].match(/alt=["']([^"']*)["']/i);
-    const resolved = resolveUrl(pageUrl, src);
-    if (resolved) {
-      // Skip _300 thumbnails - we want originals only
-      if (/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(resolved)) continue;
+    if (m[1].startsWith('data:')) continue;
+    const resolved = resolveUrl(pageUrl, m[1]);
+    if (resolved && !/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(resolved)) {
+      const altMatch = m[0].match(/alt=["']([^"']*)["']/i);
       addItem({ url: resolved, type: 'image', sourceTag: 'img', alt: altMatch?.[1] });
     }
   }
 
-  // srcset
-  const srcsetRe = /srcset=["']([^"']+)["']/gi;
-  while ((m = srcsetRe.exec(html)) !== null) {
-    m[1].split(',').map(s => s.trim().split(/\s+/)[0]).forEach(s => {
-      const url = resolveUrl(pageUrl, s);
-      if (url && !/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(url)) {
-        addItem({ url, type: 'image', sourceTag: 'srcset' });
-      }
-    });
-  }
-
-  // video/audio/source tags
   const videoRe = /<video[^>]*\ssrc=["']([^"']+)["'][^>]*/gi;
   while ((m = videoRe.exec(html)) !== null) {
     const url = resolveUrl(pageUrl, m[1]);
@@ -157,14 +135,12 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
     if (url) addItem({ url, type: mType, sourceTag: 'source' });
   }
 
-  // background-image
   const bgRe = /url\(["']?([^"')]+)["']?\)/gi;
   while ((m = bgRe.exec(html)) !== null) {
     const url = resolveUrl(pageUrl, m[1]);
     if (url && IMAGE_EXTS.test(url)) addItem({ url, type: 'image', sourceTag: 'css-bg' });
   }
 
-  // og:image/video/audio meta
   const ogRe = /<meta[^>]*(?:property|name)=["'](og:(?:image|video|audio)(?::url)?)["'][^>]*content=["']([^"']+)["']/gi;
   while ((m = ogRe.exec(html)) !== null) {
     const type: MediaItem['type'] = m[1].includes('video') ? 'video' : m[1].includes('audio') ? 'audio' : 'image';
@@ -172,7 +148,6 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
     if (url) addItem({ url, type, sourceTag: 'og-meta' });
   }
 
-  // Links to media files
   const aRe = /<a[^>]*\shref=["']([^"']+)["']/gi;
   while ((m = aRe.exec(html)) !== null) {
     const url = resolveUrl(pageUrl, m[1]);
@@ -182,12 +157,10 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
     else if (AUDIO_EXTS.test(url)) addItem({ url, type: 'audio', sourceTag: 'a-href' });
   }
 
-  // data-src lazy loading (but skip _300 thumbnails)
   const lazyRe = /data-(?:src|lazy-src|original|bg|image)=["']([^"']+)["']/gi;
   while ((m = lazyRe.exec(html)) !== null) {
     const url = resolveUrl(pageUrl, m[1]);
-    if (!url) continue;
-    if (/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(url)) continue;
+    if (!url || /_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(url)) continue;
     if (VIDEO_EXTS.test(url)) addItem({ url, type: 'video', sourceTag: 'data-attr' });
     else if (AUDIO_EXTS.test(url)) addItem({ url, type: 'audio', sourceTag: 'data-attr' });
     else if (IMAGE_EXTS.test(url) || !url.match(/\.(js|css|html|json|xml|txt)(\?|$)/i)) {
@@ -198,13 +171,59 @@ function extractMediaFromHtml(html: string, pageUrl: string): MediaItem[] {
   return media;
 }
 
+// Detect total page count from pagination or tab counts
+function detectPageCount(html: string): number {
+  // Try to find tab counts like "Photos (192)" or "Videos (199)"
+  const tabCountRe = /(?:Photos|Videos|All)\s*\((\d+)\)/gi;
+  let maxCount = 0;
+  let m;
+  while ((m = tabCountRe.exec(html)) !== null) {
+    const count = parseInt(m[1]);
+    if (count > maxCount) maxCount = count;
+  }
+  // ~44 items per page
+  if (maxCount > 0) return Math.ceil(maxCount / 44);
+
+  // Try pagination links
+  const pageRe = /[?&]page=(\d+)/gi;
+  let maxPage = 1;
+  while ((m = pageRe.exec(html)) !== null) {
+    const p = parseInt(m[1]);
+    if (p > maxPage) maxPage = p;
+  }
+  return maxPage;
+}
+
+async function scrapePage(apiKey: string, url: string): Promise<{ html: string; links: string[] }> {
+  const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      formats: ['rawHtml', 'links'],
+      waitFor: 5000,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Firecrawl error ${response.status}`);
+
+  return {
+    html: data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '',
+    links: data.data?.links || data.links || [],
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { url } = await req.json() as { url: string };
+    const { url, paginate, maxPages } = await req.json() as { url: string; paginate?: boolean; maxPages?: number };
     if (!url) {
       return new Response(JSON.stringify({ success: false, error: 'URL is required' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -223,55 +242,67 @@ Deno.serve(async (req) => {
       formattedUrl = `https://${formattedUrl}`;
     }
 
-    console.log('Firecrawl scraping:', formattedUrl);
+    console.log('Firecrawl scraping:', formattedUrl, paginate ? '(with pagination)' : '');
 
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: formattedUrl,
-        formats: ['rawHtml', 'links'],
-        waitFor: 5000,
-      }),
-    });
+    // Scrape first page
+    const firstPage = await scrapePage(apiKey, formattedUrl);
+    const allMedia: MediaItem[] = extractMediaFromHtml(firstPage.html, formattedUrl);
+    const seenUrls = new Set(allMedia.map(m => m.url));
 
-    const data = await response.json();
+    let scannedPages = 1;
 
-    if (!response.ok) {
-      console.error('Firecrawl API error:', data);
-      return new Response(JSON.stringify({ success: false, error: data.error || 'Firecrawl request failed' }), {
-        status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // If pagination requested, detect and scrape remaining pages
+    if (paginate) {
+      const totalPages = Math.min(detectPageCount(firstPage.html), maxPages || 20);
+      console.log(`Detected ${totalPages} total pages, scraping...`);
 
-    // Use rawHtml for full rendered content including data attributes
-    const html = data.data?.rawHtml || data.data?.html || data.rawHtml || data.html || '';
-    const media = extractMediaFromHtml(html, formattedUrl);
+      // Scrape pages 2..N concurrently in batches of 3
+      for (let batch = 2; batch <= totalPages; batch += 3) {
+        const pagePromises: Promise<void>[] = [];
+        for (let p = batch; p < batch + 3 && p <= totalPages; p++) {
+          const pageUrl = new URL(formattedUrl);
+          pageUrl.searchParams.set('page', String(p));
+          const pUrl = pageUrl.toString();
 
-    // Also check links for direct media file URLs
-    const links: string[] = data.data?.links || data.links || [];
-    const seen = new Set(media.map(m => m.url));
-    for (const link of links) {
-      if (seen.has(link)) continue;
-      if (IMAGE_EXTS.test(link) && !/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(link)) {
-        seen.add(link);
-        media.push({ url: link, type: 'image', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
-      } else if (VIDEO_EXTS.test(link)) {
-        seen.add(link);
-        media.push({ url: link, type: 'video', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
-      } else if (AUDIO_EXTS.test(link)) {
-        seen.add(link);
-        media.push({ url: link, type: 'audio', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
+          pagePromises.push(
+            scrapePage(apiKey, pUrl).then(result => {
+              const pageMedia = extractMediaFromHtml(result.html, pUrl);
+              for (const item of pageMedia) {
+                if (!seenUrls.has(item.url)) {
+                  seenUrls.add(item.url);
+                  allMedia.push(item);
+                }
+              }
+              scannedPages++;
+              console.log(`Page ${p}: found ${pageMedia.length} items (total: ${allMedia.length})`);
+            }).catch(err => {
+              console.warn(`Page ${p} failed:`, err.message);
+            })
+          );
+        }
+        await Promise.all(pagePromises);
       }
     }
 
-    const originals = media.filter(m => m.sourceTag === 'gallery-original' || m.sourceTag === 'gallery-video').length;
-    console.log(`Firecrawl found ${media.length} media items (${originals} gallery originals/videos)`);
+    // Also check links for direct media file URLs
+    for (const link of firstPage.links) {
+      if (seenUrls.has(link)) continue;
+      if (IMAGE_EXTS.test(link) && !/_\d+\.(jpg|jpeg|png|webp|gif)$/i.test(link)) {
+        seenUrls.add(link);
+        allMedia.push({ url: link, type: 'image', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
+      } else if (VIDEO_EXTS.test(link)) {
+        seenUrls.add(link);
+        allMedia.push({ url: link, type: 'video', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
+      } else if (AUDIO_EXTS.test(link)) {
+        seenUrls.add(link);
+        allMedia.push({ url: link, type: 'audio', sourceTag: 'firecrawl-link', foundOn: formattedUrl });
+      }
+    }
 
-    return new Response(JSON.stringify({ success: true, media, scannedPages: 1 }), {
+    const originals = allMedia.filter(m => m.sourceTag === 'gallery-original' || m.sourceTag === 'gallery-video').length;
+    console.log(`Total: ${allMedia.length} media items (${originals} gallery originals/videos) across ${scannedPages} pages`);
+
+    return new Response(JSON.stringify({ success: true, media: allMedia, scannedPages }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {
