@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search, Copy, Bot } from "lucide-react";
+import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, X, Play, ZoomIn, FileArchive, Globe, ExternalLink, Search, Copy, Bot, ChevronLeft, ChevronRight } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -375,25 +375,51 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
   };
 
   const downloadOne = async (item: MediaItem) => {
-    const url = item.downloadUrl || item.url;
-    
-    // For videos, prefer opening in browser since sites use session-based tokens
+    // For videos, automatically use agent to get fresh URLs
     if (item.type === 'video') {
-      const downloadUrl = item.downloadUrl;
-      if (downloadUrl && !downloadUrl.includes('.m3u8')) {
-        // Direct download URL exists - open in new tab (browser has cookies)
-        window.open(downloadUrl, '_blank');
-        toast.info("Download opened in new tab — your browser session handles authentication.");
-        return;
+      setDownloading(item.url);
+      toast.info("Agent is fetching fresh download links...");
+      try {
+        const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
+          body: { url: item.foundOn },
+        });
+        if (error) throw error;
+
+        const videos = (data?.media || []).filter((m: MediaItem) => m.type === 'video');
+        // Match by video ID from stream/url
+        const videoIdMatch = (item.streamUrl || item.url).match(/\/(\d+)(?:\.m3u8|\/?$)/);
+        const videoId = videoIdMatch?.[1];
+        let target = videos[0];
+        if (videoId) {
+          const match = videos.find((v: MediaItem) =>
+            v.streamUrl?.includes(videoId) || v.url?.includes(videoId) || v.downloadUrl?.includes(videoId)
+          );
+          if (match) target = match;
+        }
+
+        if (target?.downloadUrl && !target.downloadUrl.includes('.m3u8')) {
+          window.open(target.downloadUrl, '_blank');
+          toast.success("Fresh download link opened!");
+        } else if (target?.streamUrl) {
+          navigator.clipboard.writeText(target.streamUrl);
+          toast.success("Fresh stream URL copied! Open VLC → Media → Open Network Stream → Paste");
+        } else {
+          // Fallback: open whatever we have
+          window.open(item.downloadUrl || item.streamUrl || item.url, '_blank');
+          toast.info("Could not find fresh URL. Opened original link in new tab.");
+        }
+      } catch {
+        // Agent failed, fallback to direct open
+        window.open(item.downloadUrl || item.streamUrl || item.url, '_blank');
+        toast.info("Agent failed. Opened original link in new tab.");
+      } finally {
+        setDownloading(null);
       }
-      // m3u8 stream — copy URL for VLC
-      const streamUrl = item.streamUrl || item.url;
-      navigator.clipboard.writeText(streamUrl);
-      toast.success("Stream URL copied! Open VLC → Media → Open Network Stream → Paste");
       return;
     }
-    
+
     // For images/audio, try direct/proxy download
+    const url = item.downloadUrl || item.url;
     setDownloading(url);
     try {
       const blob = await proxyFetch(item);
@@ -565,6 +591,30 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     e.stopPropagation();
     setPreview(item);
   };
+
+  const previewIndex = useMemo(() => {
+    if (!preview) return -1;
+    return filtered.findIndex(m => m.url === preview.url);
+  }, [preview, filtered]);
+
+  const goPreview = useCallback((dir: 1 | -1) => {
+    if (previewIndex < 0) return;
+    const next = previewIndex + dir;
+    if (next >= 0 && next < filtered.length) {
+      setPreview(filtered[next]);
+    }
+  }, [previewIndex, filtered]);
+
+  // Keyboard navigation for preview
+  useEffect(() => {
+    if (!preview) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goPreview(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); goPreview(1); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [preview, goPreview]);
 
   return (
     <>
@@ -949,8 +999,30 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-muted/30">
+              {/* Content with nav arrows */}
+              <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-muted/30 relative">
+                {/* Previous button */}
+                {previewIndex > 0 && (
+                  <button
+                    onClick={() => goPreview(-1)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-background/80 backdrop-blur-sm border border-border hover:bg-background shadow-lg transition-colors"
+                    title="Previous (←)"
+                  >
+                    <ChevronLeft className="w-5 h-5 text-foreground" />
+                  </button>
+                )}
+
+                {/* Next button */}
+                {previewIndex < filtered.length - 1 && (
+                  <button
+                    onClick={() => goPreview(1)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-background/80 backdrop-blur-sm border border-border hover:bg-background shadow-lg transition-colors"
+                    title="Next (→)"
+                  >
+                    <ChevronRight className="w-5 h-5 text-foreground" />
+                  </button>
+                )}
+
                 {preview.type === "image" ? (
                   <img
                     src={preview.url}
@@ -972,11 +1044,14 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
               </div>
 
               {/* Footer */}
-              <div className="px-4 py-2 border-t border-border">
-                <p className="text-[10px] text-muted-foreground truncate">
+              <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+                <p className="text-[10px] text-muted-foreground truncate flex-1">
                   Source: {preview.foundOn} · Tag: &lt;{preview.sourceTag}&gt;
                   {preview.streamUrl && ` · Stream: ${preview.streamUrl.split("?")[0]}`}
                 </p>
+                <span className="text-[10px] text-muted-foreground ml-2 whitespace-nowrap">
+                  {previewIndex + 1} / {filtered.length}
+                </span>
               </div>
             </div>
           )}
