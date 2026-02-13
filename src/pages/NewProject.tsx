@@ -13,6 +13,7 @@ const NewProject = () => {
   const [respectRobots, setRespectRobots] = useState(true);
   const [sameDomain, setSameDomain] = useState(true);
   const [followRedirects, setFollowRedirects] = useState(true);
+  const [renderPass, setRenderPass] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,15 +77,15 @@ const NewProject = () => {
           </div>
           <div className="space-y-2">
             <Label htmlFor="pages">Max Pages</Label>
-            <Input id="pages" type="number" defaultValue={500} min={1} max={10000} />
+            <Input id="pages" type="number" defaultValue={200} min={1} max={10000} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="concurrency">Concurrency</Label>
-            <Input id="concurrency" type="number" defaultValue={5} min={1} max={20} />
+            <Input id="concurrency" type="number" defaultValue={2} min={1} max={20} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="delay">Crawl Delay (ms)</Label>
-            <Input id="delay" type="number" defaultValue={200} min={0} max={5000} />
+            <Input id="delay" type="number" defaultValue={1000} min={0} max={5000} />
           </div>
         </div>
 
@@ -117,6 +118,10 @@ const NewProject = () => {
           <div className="flex items-center gap-2">
             <Switch id="redirects" checked={followRedirects} onCheckedChange={setFollowRedirects} />
             <Label htmlFor="redirects" className="text-sm">Follow redirects</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch id="renderPass" checked={renderPass} onCheckedChange={setRenderPass} />
+            <Label htmlFor="renderPass" className="text-sm">Render pass (headless browser)</Label>
           </div>
         </div>
 
