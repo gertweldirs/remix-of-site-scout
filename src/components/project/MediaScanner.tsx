@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Camera, Download, Loader2, Image, Film, Music, CheckSquare, Square, DownloadCloud, X, Play, ZoomIn, FileArchive } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -32,6 +32,8 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [zipping, setZipping] = useState(false);
   const [preview, setPreview] = useState<MediaItem | null>(null);
+  const [visibleCount, setVisibleCount] = useState(20);
+  const LOAD_BATCH = 20;
 
   const scan = useCallback(async () => {
     if (pageUrls.length === 0) {
@@ -41,6 +43,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     setScanning(true);
     setMedia([]);
     setSelected(new Set());
+    setVisibleCount(LOAD_BATCH);
     try {
       const allMedia: MediaItem[] = [];
       for (let i = 0; i < pageUrls.length; i += 20) {
@@ -68,7 +71,9 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     }
   }, [pageUrls]);
 
-  const filtered = filter === "all" ? media : media.filter(m => m.type === filter);
+  const filtered = useMemo(() => filter === "all" ? media : media.filter(m => m.type === filter), [media, filter]);
+  const visibleItems = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = visibleCount < filtered.length;
   const counts = {
     all: media.length,
     image: media.filter(m => m.type === "image").length,
@@ -284,94 +289,106 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                 <p className="text-xs">No {filter === "all" ? "media" : filter} found</p>
               </div>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {filtered.map((item) => (
-                  <div
-                    key={item.url}
-                    className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-all ${
-                      selected.has(item.url) ? "border-primary ring-1 ring-primary" : "border-border hover:border-muted-foreground"
-                    }`}
-                    onClick={() => toggleSelect(item.url)}
-                  >
-                    {/* Thumbnail */}
-                    <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
-                      {item.type === "image" ? (
-                        <img
-                          src={item.url}
-                          alt={item.alt || ""}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = "none";
-                            (e.target as HTMLImageElement).parentElement!.innerHTML =
-                              '<div class="flex items-center justify-center h-full text-muted-foreground"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
-                          }}
-                        />
-                      ) : item.type === "video" ? (
-                        item.poster ? (
-                          <img src={item.poster} alt="" className="w-full h-full object-cover" loading="lazy" />
+              <>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {visibleItems.map((item) => (
+                    <div
+                      key={item.url}
+                      className={`group relative rounded-lg border overflow-hidden cursor-pointer transition-all ${
+                        selected.has(item.url) ? "border-primary ring-1 ring-primary" : "border-border hover:border-muted-foreground"
+                      }`}
+                      onClick={() => toggleSelect(item.url)}
+                    >
+                      {/* Thumbnail */}
+                      <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
+                        {item.type === "image" ? (
+                          <img
+                            src={item.url}
+                            alt={item.alt || ""}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = "none";
+                              (e.target as HTMLImageElement).parentElement!.innerHTML =
+                                '<div class="flex items-center justify-center h-full text-muted-foreground"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                            }}
+                          />
+                        ) : item.type === "video" ? (
+                          item.poster ? (
+                            <img src={item.poster} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                              <Film className="w-6 h-6" />
+                              <span className="text-[8px]">VIDEO</span>
+                            </div>
+                          )
                         ) : (
                           <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                            <Film className="w-6 h-6" />
-                            <span className="text-[8px]">VIDEO</span>
+                            <Music className="w-6 h-6" />
+                            <span className="text-[8px]">AUDIO</span>
                           </div>
-                        )
-                      ) : (
-                        <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                          <Music className="w-6 h-6" />
-                          <span className="text-[8px]">AUDIO</span>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
 
-                    {/* Type badge */}
-                    <div className="absolute top-1 left-1">
-                      <TypeIcon type={item.type} />
-                    </div>
+                      {/* Type badge */}
+                      <div className="absolute top-1 left-1">
+                        <TypeIcon type={item.type} />
+                      </div>
 
-                    {/* Selection indicator */}
-                    <div className="absolute top-1 right-1">
-                      {selected.has(item.url) ? (
-                        <CheckSquare className="w-3.5 h-3.5 text-primary" />
-                      ) : (
-                        <Square className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                      )}
-                    </div>
+                      {/* Selection indicator */}
+                      <div className="absolute top-1 right-1">
+                        {selected.has(item.url) ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </div>
 
-                    {/* Preview button */}
+                      {/* Preview button */}
+                      <button
+                        onClick={(e) => openPreview(item, e)}
+                        className="absolute bottom-1 left-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
+                        title="Preview"
+                      >
+                        {item.type === "video" ? (
+                          <Play className="w-3 h-3 text-foreground" />
+                        ) : (
+                          <ZoomIn className="w-3 h-3 text-foreground" />
+                        )}
+                      </button>
+
+                      {/* Download button */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); downloadOne(item.url); }}
+                        className="absolute bottom-1 right-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
+                      >
+                        {downloading === item.url ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                        ) : (
+                          <Download className="w-3 h-3 text-foreground" />
+                        )}
+                      </button>
+
+                      {/* Filename */}
+                      <div className="px-1 py-0.5 bg-card">
+                        <p className="text-[8px] text-muted-foreground truncate font-mono">
+                          {item.url.split("/").pop()?.split("?")[0] || "file"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {hasMore && (
+                  <div className="flex justify-center pt-4 pb-2">
                     <button
-                      onClick={(e) => openPreview(item, e)}
-                      className="absolute bottom-1 left-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
-                      title="Preview"
+                      onClick={() => setVisibleCount(c => c + LOAD_BATCH)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-muted text-muted-foreground text-xs font-medium hover:text-foreground hover:bg-muted/80 transition-colors"
                     >
-                      {item.type === "video" ? (
-                        <Play className="w-3 h-3 text-foreground" />
-                      ) : (
-                        <ZoomIn className="w-3 h-3 text-foreground" />
-                      )}
+                      Load more ({filtered.length - visibleCount} remaining)
                     </button>
-
-                    {/* Download button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); downloadOne(item.url); }}
-                      className="absolute bottom-1 right-1 p-1 rounded bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background"
-                    >
-                      {downloading === item.url ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-primary" />
-                      ) : (
-                        <Download className="w-3 h-3 text-foreground" />
-                      )}
-                    </button>
-
-                    {/* Filename */}
-                    <div className="px-1 py-0.5 bg-card">
-                      <p className="text-[8px] text-muted-foreground truncate font-mono">
-                        {item.url.split("/").pop()?.split("?")[0] || "file"}
-                      </p>
-                    </div>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         </SheetContent>
