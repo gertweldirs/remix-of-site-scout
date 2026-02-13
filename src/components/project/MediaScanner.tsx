@@ -410,6 +410,34 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
     }
   };
 
+  const openAllDownloads = (items: MediaItem[]) => {
+    const videos = items.filter(m => m.type === 'video');
+    if (videos.length === 0) {
+      toast.error("No videos selected");
+      return;
+    }
+
+    let openCount = 0;
+    const noUrlCount = videos.length;
+
+    videos.forEach((item, index) => {
+      const downloadUrl = item.downloadUrl;
+      if (downloadUrl && !downloadUrl.includes('.m3u8')) {
+        // Open direct download URL with slight delay to avoid blocking
+        setTimeout(() => {
+          window.open(downloadUrl, '_blank');
+          openCount++;
+        }, index * 200);
+      }
+    });
+
+    if (openCount > 0) {
+      toast.success(`Opening ${openCount} video download link${openCount !== 1 ? 's' : ''} in new tabs`);
+    } else {
+      toast.info("Selected videos are streams — copy URLs individually for VLC");
+    }
+  };
+
   const downloadAsZip = async (items: MediaItem[]) => {
     if (items.length === 0) {
       toast.error("No items to download");
@@ -644,24 +672,28 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                     {selected.size === filtered.length && filtered.length > 0 ? <CheckSquare className="w-3 h-3" /> : <Square className="w-3 h-3" />}
                     {selected.size === filtered.length && filtered.length > 0 ? "Deselect all" : "Select all"}
                   </button>
-                  {selected.size > 0 && (
-                    <>
-                      <button onClick={() => downloadAsZip(filtered.filter(m => selected.has(m.url)))}
-                        disabled={zipping}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 disabled:opacity-50">
-                        {zipping ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <FileArchive className="w-2.5 h-2.5" />}
-                        ZIP selected ({selected.size})
-                      </button>
-                      <button onClick={() => {
-                        const items = filtered.filter(m => selected.has(m.url));
-                        toast.info(`Downloading ${items.length} files...`);
-                        items.forEach((item, i) => setTimeout(() => downloadOne(item), i * 300));
-                      }}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20">
-                        <Download className="w-2.5 h-2.5" /> Download ({selected.size})
-                      </button>
-                    </>
-                  )}
+                   {selected.size > 0 && (
+                     <>
+                       <button onClick={() => openAllDownloads(filtered.filter(m => selected.has(m.url)))}
+                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20">
+                         <ExternalLink className="w-2.5 h-2.5" /> Open All ({selected.size})
+                       </button>
+                       <button onClick={() => downloadAsZip(filtered.filter(m => selected.has(m.url)))}
+                         disabled={zipping}
+                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20 disabled:opacity-50">
+                         {zipping ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <FileArchive className="w-2.5 h-2.5" />}
+                         ZIP selected ({selected.size})
+                       </button>
+                       <button onClick={() => {
+                         const items = filtered.filter(m => selected.has(m.url));
+                         toast.info(`Downloading ${items.length} files...`);
+                         items.forEach((item, i) => setTimeout(() => downloadOne(item), i * 300));
+                       }}
+                         className="flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium hover:bg-primary/20">
+                         <Download className="w-2.5 h-2.5" /> Download ({selected.size})
+                       </button>
+                     </>
+                   )}
                   <button onClick={() => downloadAsZip(filtered)}
                     disabled={zipping}
                     className="flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-muted-foreground text-[10px] font-medium hover:text-foreground disabled:opacity-50">
