@@ -133,7 +133,7 @@ async function downloadSegments(manifest: string, baseUrl: string, referer: stri
   const isMaster = segmentUrls.some(u => u.includes('.m3u8'));
   if (isMaster) {
     // Find the highest quality variant
-    let bestUrl = segmentUrls[segmentUrls.length - 1]; // Usually last = highest quality
+    const bestUrl = segmentUrls[segmentUrls.length - 1]; // Usually last = highest quality
     console.log(`Agent: Master playlist detected, picking variant: ${bestUrl.substring(0, 80)}`);
 
     const variantManifest = await fetchM3u8Manifest(bestUrl, referer);

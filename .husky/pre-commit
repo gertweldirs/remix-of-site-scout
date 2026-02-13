@@ -1,0 +1,32 @@
+#!/bin/bash
+# .husky/pre-commit hook to prevent committing secrets
+
+# Check if .env files are being added
+if git diff --cached --name-only | grep -qE '\.env|\.env\.local|secret|credentials'; then
+  echo ""
+  echo "❌ SECURITY ALERT: Attempting to commit environment files!"
+  echo ""
+  echo "DO NOT COMMIT:"
+  echo "  • .env files (use .env.example as template instead)"
+  echo "  • API keys, passwords, or tokens"
+  echo "  • Database credentials"
+  echo ""
+  echo "FIX:"
+  echo "  1. Remove secrets from your changes"
+  echo "  2. Add them to .gitignore if not already there"
+  echo "  3. Run 'git reset HEAD <file>' to unstage"
+  echo ""
+  exit 1
+fi
+
+# Check for common secret patterns
+SECRETS_PATTERN='(password|secret|api_key|api[-_]key|token|credentials|private[-_]key|jwt|bearer)'
+
+if git diff --cached -U0 | grep -iE "$SECRETS_PATTERN"; then
+  echo ""
+  echo "⚠️  WARNING: Potential secrets detected in staged changes"
+  echo "Review above before committing."
+  echo ""
+fi
+
+exit 0

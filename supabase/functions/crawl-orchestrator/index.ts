@@ -59,7 +59,7 @@ serve(async (req) => {
     await supabase.from("projects").update({ status: "running" }).eq("id", projectId);
 
     // Check robots.txt if enabled
-    let disallowedPaths: string[] = [];
+    const disallowedPaths: string[] = [];
     if (project.respect_robots) {
       try {
         const baseUrl = new URL(project.start_url);
