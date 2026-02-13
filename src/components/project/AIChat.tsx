@@ -1,13 +1,24 @@
 import { useState, useRef, useEffect } from "react";
-import { MessageSquare, Send, X, Sparkles } from "lucide-react";
+import { MessageSquare, Send, X, Sparkles, Copy, Check, GripHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import ReactMarkdown from "react-markdown";
 import { demoFindings, demoEndpoints, demoSecrets, demoAssets, demoPages, demoSearchResults, demoNetworkRequests, demoTechStack } from "@/lib/demo-data";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+}
+
+interface Position {
+  x: number;
+  y: number;
+}
+
+interface Size {
+  width: number;
+  height: number;
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
@@ -99,11 +110,64 @@ export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [model, setModel] = useState<"gpt-5" | "gpt-5.2">("gpt-5");
+  const [position, setPosition] = useState<Position>({ x: 0, y: 0 });
+  const [size, setSize] = useState<Size>({ width: 420, height: 560 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const windowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages]);
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('[data-resize]')) return;
+    setIsDragging(true);
+    setDragOffset({
+      x: e.clientX - position.x,
+      y: e.clientY - position.y,
+    });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !open) return;
+    setPosition({
+      x: e.clientX - dragOffset.x,
+      y: e.clientY - dragOffset.y,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleResizeMove = (e: MouseEvent) => {
+      const newWidth = Math.max(350, e.clientX - position.x);
+      const newHeight = Math.max(400, e.clientY - position.y);
+      setSize({ width: newWidth, height: newHeight });
+    };
+
+    const handleResizeEnd = () => setIsResizing(false);
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd);
+
+    return () => {
+      document.removeEventListener('mousemove', handleResizeMove);
+      document.removeEventListener('mouseup', handleResizeEnd);
+    };
+  }, [isResizing, position]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -142,32 +206,63 @@ export function AIChat() {
 
   if (!open) {
     return (
-      <button
+      <motion.button
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:scale-105"
+        className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-gradient-to-r from-primary to-primary/80 text-primary-foreground shadow-2xl hover:shadow-primary/30 hover:scale-105 transition-all backdrop-blur-sm border border-primary/20"
       >
         <Sparkles className="w-4 h-4" />
-        <span className="text-sm font-medium">GPT-5 Assistant</span>
-      </button>
+        <span className="text-sm font-medium">{model === "gpt-5.2" ? "GPT-5.2" : "GPT-5"} Assistant</span>
+      </motion.button>
     );
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[420px] h-[560px] rounded-xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden">
+    <motion.div
+      ref={windowRef}
+      style={{
+        position: 'fixed',
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${size.width}px`,
+        height: `${size.height}px`,
+        zIndex: 50,
+      }}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      initial={{ scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="rounded-2xl border border-white/20 bg-gradient-to-br from-card/80 via-card/70 to-card/60 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden"
+    >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+      <div 
+        onMouseDown={handleMouseDown}
+        className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-gradient-to-r from-primary/10 to-primary/5 cursor-grab active:cursor-grabbing select-none"
+      >
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center">
+          <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center border border-primary/30">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
           </div>
           <div>
-            <span className="text-sm font-semibold text-foreground">GPT-5 Assistant</span>
+            <span className="text-sm font-semibold text-foreground">{model === "gpt-5.2" ? "GPT-5.2" : "GPT-5"} Assistant</span>
             <span className="text-xs text-muted-foreground ml-2">Powered by OpenAI</span>
           </div>
         </div>
-        <button onClick={() => setOpen(false)} className="p-1.5 rounded-md hover:bg-muted transition-colors">
-          <X className="w-4 h-4 text-muted-foreground" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value as "gpt-5" | "gpt-5.2")}
+            className="text-xs px-2 py-1 rounded-md bg-muted/50 border border-white/10 text-foreground hover:bg-muted transition-colors"
+          >
+            <option value="gpt-5">GPT-5</option>
+            <option value="gpt-5.2">GPT-5.2</option>
+          </select>
+          <button onClick={() => setOpen(false)} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -175,7 +270,7 @@ export function AIChat() {
         {messages.length === 0 && (
           <div className="space-y-3">
             <div className="text-center py-4">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center mx-auto mb-3 border border-primary/20">
                 <Sparkles className="w-6 h-6 text-primary" />
               </div>
               <p className="text-sm font-medium text-foreground">Scan Analysis Assistant</p>
@@ -186,7 +281,7 @@ export function AIChat() {
                 <button
                   key={s}
                   onClick={() => setInput(s)}
-                  className="w-full text-left px-3 py-2 rounded-lg border border-border hover:border-primary/30 hover:bg-muted/50 text-xs text-foreground transition-colors"
+                  className="w-full text-left px-3 py-2 rounded-lg border border-white/10 hover:border-primary/30 hover:bg-primary/5 text-xs text-foreground transition-colors"
                 >
                   {s}
                 </button>
@@ -198,8 +293,8 @@ export function AIChat() {
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] px-3 py-2 rounded-lg text-xs leading-relaxed ${
               m.role === "user"
-                ? "bg-primary text-primary-foreground rounded-br-sm"
-                : "bg-muted text-foreground rounded-bl-sm"
+                ? "bg-gradient-to-r from-primary to-primary/80 text-primary-foreground rounded-br-sm"
+                : "bg-muted/50 text-foreground rounded-bl-sm border border-white/10"
             }`}>
               {m.role === "assistant" ? (
                 <div className="prose prose-xs prose-invert max-w-none
@@ -229,7 +324,7 @@ export function AIChat() {
         ))}
         {loading && messages[messages.length - 1]?.role !== "assistant" && (
           <div className="flex justify-start">
-            <div className="px-3 py-2 rounded-lg bg-muted text-xs text-muted-foreground rounded-bl-sm">
+            <div className="px-3 py-2 rounded-lg bg-muted/50 text-xs text-muted-foreground rounded-bl-sm border border-white/10">
               <span className="inline-flex gap-1">
                 <span className="animate-bounce" style={{ animationDelay: "0ms" }}>●</span>
                 <span className="animate-bounce" style={{ animationDelay: "150ms" }}>●</span>
@@ -241,14 +336,14 @@ export function AIChat() {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-border">
+      <div className="p-3 border-t border-white/10 bg-gradient-to-r from-card/50 to-card/40">
         <div className="flex gap-2">
           <Input
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSend()}
             placeholder="Ask about scan results..."
-            className="h-9 text-xs"
+            className="h-9 text-xs bg-card/50 border-white/10 focus-visible:ring-primary/50"
             disabled={loading}
           />
           <button
@@ -260,6 +355,17 @@ export function AIChat() {
           </button>
         </div>
       </div>
-    </div>
+
+      {/* Resize Handle */}
+      <div
+        data-resize="true"
+        onMouseDown={handleResizeMouseDown}
+        className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize group"
+      >
+        <div className="absolute bottom-1 right-1 w-4 h-4 flex items-center justify-center opacity-40 group-hover:opacity-100 transition-opacity">
+          <GripHorizontal className="w-3 h-3 text-muted-foreground rotate-45" />
+        </div>
+      </div>
+    </motion.div>
   );
 }
