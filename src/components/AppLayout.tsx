@@ -1,10 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
 import { 
   LayoutDashboard, FolderSearch, Plus, Settings, Shield,
-  Globe, ChevronLeft, ChevronRight
+  Globe, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -15,6 +16,7 @@ const navItems = [
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const { signOut } = useAuth();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -57,6 +59,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+
+        {/* Logout */}
+        <button
+          onClick={signOut}
+          className="flex items-center gap-3 px-5 py-2.5 text-sm text-muted-foreground hover:text-foreground transition-colors border-t border-border"
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Uitloggen</span>}
+        </button>
 
         {/* Collapse toggle */}
         <button
