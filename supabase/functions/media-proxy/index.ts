@@ -303,8 +303,8 @@ Deno.serve(async (req) => {
     }
 
     if (!resp.ok) {
-      return new Response(JSON.stringify({ error: `Failed to fetch: ${resp.status}` }), {
-        status: resp.status,
+      return new Response(JSON.stringify({ error: `Failed to fetch: ${resp.status}`, upstreamStatus: resp.status }), {
+        status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
