@@ -1,1 +1,22 @@
-project_id = "dorlctsadypvpfrehctx"
+project_id = "gwzghjepjotggqgerqer"
+
+[functions.ai-chat]
+verify_jwt = false
+
+[functions.crawl-page]
+verify_jwt = false
+
+[functions.crawl-orchestrator]
+verify_jwt = false
+
+[functions.scan-media]
+verify_jwt = false
+
+[functions.firecrawl-scrape]
+verify_jwt = false
+
+[functions.media-proxy]
+verify_jwt = false
+
+[functions.video-download-agent]
+verify_jwt = false
