@@ -18,6 +18,8 @@ export interface Project {
   excludePatterns: string[];
   createdAt: string;
   status: ProjectStatus;
+  renderPass?: boolean;
+  consent?: boolean;
 }
 
 export interface CrawlRun {
@@ -30,6 +32,8 @@ export interface CrawlRun {
   pagesTotal: number;
   errorsCount: number;
   warningsCount: number;
+  consent: boolean;
+  renderPass: boolean;
 }
 
 export interface PageResult {
@@ -60,9 +64,10 @@ export interface Finding {
 export interface Asset {
   id: string;
   url: string;
-  type: "javascript" | "stylesheet" | "image" | "sourcemap" | "other";
+  type: "javascript" | "stylesheet" | "image" | "sourcemap" | "font" | "video" | "audio" | "manifest" | "other";
   size: number;
   hash: string;
+  whereFound?: string;
 }
 
 export interface SearchResult {
@@ -72,4 +77,58 @@ export interface SearchResult {
   column: number;
   match: string;
   context: string;
+}
+
+export interface NetworkRequest {
+  id: string;
+  method: string;
+  url: string;
+  statusCode: number;
+  type: "document" | "script" | "stylesheet" | "image" | "font" | "xhr" | "fetch" | "websocket" | "other";
+  initiator: string;
+  size: number;
+  time: number;
+  requestHeaders?: Record<string, string>;
+  responseHeaders?: Record<string, string>;
+}
+
+export interface Endpoint {
+  id: string;
+  url: string;
+  method: string;
+  type: "rest" | "graphql" | "websocket" | "static";
+  foundIn: string;
+  line?: number;
+  operationName?: string;
+}
+
+export interface SecretFinding {
+  id: string;
+  type: string;
+  maskedValue: string;
+  fingerprint: string;
+  severity: Severity;
+  confidence: number;
+  location: string;
+  line: number;
+  snippet: string;
+}
+
+export interface TechStackItem {
+  name: string;
+  version: string;
+  confidence: number;
+  evidence: string;
+}
+
+export interface GraphNode {
+  id: string;
+  type: "page" | "asset" | "endpoint" | "finding";
+  label: string;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  label?: string;
 }
