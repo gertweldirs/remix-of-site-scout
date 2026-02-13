@@ -202,7 +202,23 @@ export function AIChat() {
                 : "bg-muted text-foreground rounded-bl-sm"
             }`}>
               {m.role === "assistant" ? (
-                <div className="prose prose-xs prose-invert max-w-none [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0.5 [&_code]:text-primary [&_code]:bg-primary/10 [&_code]:px-1 [&_code]:rounded">
+                <div className="prose prose-xs prose-invert max-w-none
+                  [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-2 [&_h1]:text-primary
+                  [&_h2]:text-xs [&_h2]:font-bold [&_h2]:mt-2.5 [&_h2]:mb-1.5 [&_h2]:text-primary/90
+                  [&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-primary/80
+                  [&_p]:my-2 [&_p]:leading-relaxed
+                  [&_ul]:my-2 [&_ul]:ml-4 [&_ul]:list-disc
+                  [&_ol]:my-2 [&_ol]:ml-4 [&_ol]:list-decimal
+                  [&_li]:my-1 [&_li]:ml-2
+                  [&_code]:text-primary [&_code]:bg-primary/15 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
+                  [&_pre]:my-2 [&_pre]:bg-black/40 [&_pre]:p-2 [&_pre]:rounded [&_pre]:text-xs [&_pre]:overflow-x-auto
+                  [&_pre_code]:text-primary/90 [&_pre_code]:font-mono
+                  [&_strong]:font-semibold [&_strong]:text-foreground
+                  [&_em]:italic
+                  [&_blockquote]:border-l-2 [&_blockquote]:border-primary/40 [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:my-2
+                  [&_table]:text-xs [&_table]:my-2
+                  [&_th]:text-left [&_th]:font-semibold
+                  [&_td]:py-1 [&_td]:px-2">
                   <ReactMarkdown>{m.content}</ReactMarkdown>
                 </div>
               ) : (
