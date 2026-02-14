@@ -459,43 +459,57 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
   };
 
   const downloadOne = async (item: MediaItem) => {
-    // For videos, automatically use agent to get fresh URLs
+    // For videos, automatically use video-download-agent to bypass blocks
     if (item.type === 'video') {
       setDownloading(item.url);
-      toast.info("Agent is fetching fresh download links...");
+      toast.info("Agent is extracting fresh video URL bypassing all blocks...");
       try {
-        const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
-          body: { url: item.foundOn },
+        const { data, error } = await supabase.functions.invoke('video-download-agent', {
+          body: {
+            pageUrl: item.foundOn,
+            streamUrl: item.streamUrl || item.url,
+            mode: 'fresh-url', // Get fresh URL instead of downloading full video
+          },
         });
+        
         if (error) throw error;
 
-        const videos = (data?.media || []).filter((m: MediaItem) => m.type === 'video');
-        // Match by video ID from stream/url
-        const videoIdMatch = (item.streamUrl || item.url).match(/\/(\d+)(?:\.m3u8|\/?$)/);
-        const videoId = videoIdMatch?.[1];
-        let target = videos[0];
-        if (videoId) {
-          const match = videos.find((v: MediaItem) =>
-            v.streamUrl?.includes(videoId) || v.url?.includes(videoId) || v.downloadUrl?.includes(videoId)
-          );
-          if (match) target = match;
-        }
-
-        if (target?.downloadUrl && !target.downloadUrl.includes('.m3u8')) {
-          window.open(target.downloadUrl, '_blank');
-          toast.success("Fresh download link opened!");
-        } else if (target?.streamUrl) {
-          navigator.clipboard.writeText(target.streamUrl);
-          toast.success("Fresh stream URL copied! Open VLC → Media → Open Network Stream → Paste");
+        if (data?.success && (data?.url || data?.allUrls?.[0])) {
+          const freshUrl = data.url || data.allUrls[0];
+          navigator.clipboard.writeText(freshUrl);
+          toast.success("✅ Fresh stream URL copied! Paste in VLC → Media → Open Network Stream");
         } else {
-          // Fallback: open whatever we have
-          window.open(item.downloadUrl || item.streamUrl || item.url, '_blank');
-          toast.info("Could not find fresh URL. Opened original link in new tab.");
+          throw new Error(data?.error || 'No fresh URL found');
         }
-      } catch {
-        // Agent failed, fallback to direct open
-        window.open(item.downloadUrl || item.streamUrl || item.url, '_blank');
-        toast.info("Agent failed. Opened original link in new tab.");
+      } catch (err) {
+        console.error('Video agent failed:', err);
+        // Fallback: try firecrawl-scrape to get downloadUrl
+        try {
+          const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
+            body: { url: item.foundOn },
+          });
+          if (error) throw error;
+
+          const videos = (data?.media || []).filter((m: MediaItem) => m.type === 'video');
+          const videoIdMatch = (item.streamUrl || item.url).match(/\/(\d+)(?:\.m3u8|\/?$)/);
+          const videoId = videoIdMatch?.[1];
+          let target = videos[0];
+          if (videoId) {
+            const match = videos.find((v: MediaItem) =>
+              v.streamUrl?.includes(videoId) || v.url?.includes(videoId)
+            );
+            if (match) target = match;
+          }
+
+          if (target?.streamUrl) {
+            navigator.clipboard.writeText(target.streamUrl);
+            toast.success("✅ Stream URL copied! Paste in VLC → Media → Open Network Stream");
+          } else {
+            throw new Error('No stream URL found');
+          }
+        } catch (fallbackErr) {
+          toast.error("❌ Could not get video. Try VLC: File → Open Stream → " + (item.streamUrl || item.url));
+        }
       } finally {
         setDownloading(null);
       }
