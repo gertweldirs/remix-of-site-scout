@@ -142,7 +142,7 @@ serve(async (req) => {
 
     // Parse HTML
     const html = await response.text();
-    const { document: doc } = parseHTML(html);
+    const { document: doc } = parseHTML(html) as any;
 
     // Extract metadata
     const title = doc.querySelector("title")?.textContent ||

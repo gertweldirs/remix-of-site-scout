@@ -8,6 +8,21 @@ import { toast } from "sonner";
 import JSZip from "jszip";
 import Hls from "hls.js";
 
+async function safeClipboardWrite(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
 interface MediaItem {
   url: string;
   type: "image" | "video" | "audio";
@@ -199,7 +214,7 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
             ) : (
               <button
                 onClick={() => {
-                  navigator.clipboard.writeText(agentUrl);
+                  safeClipboardWrite(agentUrl);
                   toast.success("Stream URL gekopieerd! Plak in VLC: Media → Open Network Stream");
                 }}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
@@ -228,7 +243,7 @@ const HlsVideo = React.forwardRef<HTMLVideoElement, { src: string; poster?: stri
           <div className="flex flex-wrap gap-2 justify-center">
             <button
               onClick={() => {
-                navigator.clipboard.writeText(src);
+                safeClipboardWrite(src);
                 toast.success("Stream URL gekopieerd! Plak in VLC: Media → Open Network Stream");
               }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-muted text-foreground text-sm font-medium hover:bg-muted/80"
@@ -304,7 +319,7 @@ function VideoAgentButton({ pageUrl, streamUrl }: { pageUrl: string; streamUrl: 
         toast.success("Fresh download link opened! Your browser session should authenticate it.");
         setAgentState('done');
       } else if (target?.streamUrl) {
-        navigator.clipboard.writeText(target.streamUrl);
+         safeClipboardWrite(target.streamUrl);
         toast.success("Fresh stream URL copied! Paste in VLC: Media → Open Network Stream");
         setAgentState('done');
       } else {
@@ -476,14 +491,28 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
 
         if (data?.success && (data?.url || data?.allUrls?.[0])) {
           const freshUrl = data.url || data.allUrls[0];
-          navigator.clipboard.writeText(freshUrl);
+          safeClipboardWrite(freshUrl);
           toast.success("✅ Fresh stream URL copied! Paste in VLC → Media → Open Network Stream");
         } else {
           throw new Error(data?.error || 'No fresh URL found');
         }
       } catch (err) {
         console.error('Video agent failed:', err);
-        // Fallback: try firecrawl-scrape to get downloadUrl
+        // Fallback 1: try media-proxy with original stream URL
+        const streamToTry = item.streamUrl || item.url;
+        try {
+          const { data: proxyData, error: proxyErr } = await supabase.functions.invoke('media-proxy', {
+            body: { url: streamToTry, refererUrl: item.foundOn, proxySegments: true },
+          });
+          if (!proxyErr && proxyData && !(proxyData instanceof Blob && proxyData.size === 0)) {
+            safeClipboardWrite(streamToTry);
+            toast.success("✅ Stream URL copied! Paste in VLC → Media → Open Network Stream");
+            setDownloading(null);
+            return;
+          }
+        } catch { /* proxy also failed */ }
+
+        // Fallback 2: try firecrawl-scrape
         try {
           const { data, error } = await supabase.functions.invoke('firecrawl-scrape', {
             body: { url: item.foundOn },
@@ -502,13 +531,14 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
           }
 
           if (target?.streamUrl) {
-            navigator.clipboard.writeText(target.streamUrl);
+            safeClipboardWrite(target.streamUrl);
             toast.success("✅ Stream URL copied! Paste in VLC → Media → Open Network Stream");
           } else {
             throw new Error('No stream URL found');
           }
         } catch (fallbackErr) {
-          toast.error("❌ Could not get video. Try VLC: File → Open Stream → " + (item.streamUrl || item.url));
+          safeClipboardWrite(streamToTry);
+          toast.info("📋 Stream URL copied. Paste in VLC → Media → Open Network Stream");
         }
       } finally {
         setDownloading(null);
@@ -1071,7 +1101,7 @@ export function MediaScanner({ pageUrls, projectName }: Props) {
                     <button
                       onClick={() => {
                         const url = preview.streamUrl || preview.url;
-                        navigator.clipboard.writeText(url);
+                        safeClipboardWrite(url);
                         toast.success("URL copied! Paste in VLC: Media → Open Network Stream");
                       }}
                       className="flex items-center gap-1 px-2 py-1 rounded bg-muted text-muted-foreground text-xs hover:text-foreground"

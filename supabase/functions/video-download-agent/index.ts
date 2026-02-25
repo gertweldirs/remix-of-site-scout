@@ -95,7 +95,7 @@ async function extractFreshM3u8Urls(pageUrl: string): Promise<string[]> {
   }
 
   // Deduplicate and clean
-  const unique = [...new Set(rawMatches.map(u => u.replace(/&amp;/g, '&').replace(/\\u0026/g, '&')))];
+  const unique = [...new Set(rawMatches.map((u: string) => u.replace(/&amp;/g, '&').replace(/\\u0026/g, '&')))] as string[];
   console.log(`Agent: Found ${unique.length} m3u8 URLs in rendered page`);
   return unique;
 }
@@ -277,7 +277,7 @@ Deno.serve(async (req) => {
     }
 
     // Return the concatenated video binary
-    return new Response(result.data, {
+    return new Response(result.data.buffer as ArrayBuffer, {
       headers: {
         ...corsHeaders,
         'Content-Type': 'video/mp2t',
